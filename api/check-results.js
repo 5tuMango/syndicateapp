@@ -49,7 +49,7 @@ export default async function handler(req, res) {
   try {
     // Manual check (betId): fetch that specific bet regardless of outcome
     // Cron (no betId): fetch ONE pending bet at a time to stay within 30s timeout
-    let fetchUrl = `${SUPABASE_URL}/rest/v1/bets?outcome=eq.pending&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)&order=date.asc&limit=3`
+    let fetchUrl = `${SUPABASE_URL}/rest/v1/bets?outcome=eq.pending&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)&order=date.asc&limit=2`
     if (betId) fetchUrl = `${SUPABASE_URL}/rest/v1/bets?id=eq.${betId}&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)`
 
     const betsRes = await sbFetch(fetchUrl, 'GET', null, SUPABASE_URL, SUPABASE_KEY)
@@ -131,7 +131,7 @@ export default async function handler(req, res) {
         results.push({ betId: bet.id, outcome: 'pending', error: err.message })
       }
 
-      if (bets.length > 1) await sleep(1000) // 1s between bets
+      if (bets.length > 1) await sleep(5000) // 5s between bets to respect rate limit
     }
 
     return res.status(200).json({ checked: bets.length, results })
