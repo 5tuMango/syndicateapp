@@ -334,8 +334,8 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
             </button>
           )}
 
-          {/* Check Result — shown for any pending bet */}
-          {bet.outcome === 'pending' && (
+          {/* Check Result — shown for pending bets OR bets with pending legs */}
+          {(bet.outcome === 'pending' || legs.some((l) => l.outcome === 'pending')) && (
             <button
               onClick={handleCheckResult}
               disabled={checking}

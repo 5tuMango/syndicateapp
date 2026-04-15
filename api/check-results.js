@@ -46,6 +46,7 @@ export default async function handler(req, res) {
   const betId = req.method === 'POST' ? req.body?.betId : null
 
   try {
+    // Cron: only pending bets. Manual check (betId): fetch regardless of outcome so we can resolve pending legs
     let fetchUrl = `${SUPABASE_URL}/rest/v1/bets?outcome=eq.pending&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)`
     if (betId) fetchUrl = `${SUPABASE_URL}/rest/v1/bets?id=eq.${betId}&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)`
 
