@@ -381,26 +381,17 @@ async function checkBetResult(apiKey, apiSportsKey, bet) {
     ? `\n\nCONFIRMED SCORES (from API-Sports — treat as ground truth for match outcomes):\n${confirmedScores}`
     : ''
 
-  const system = `You are a sports betting result checker for an Australian punters club using Sportsbet.${confirmedScoresSection}
+  const system = `You are a sports betting result checker. Search for the result and respond with ONLY a JSON object — no prose, no explanation, no markdown. Your entire response must be valid JSON.${confirmedScoresSection}
 
-Your job:
-1. Use the CONFIRMED SCORES above (where provided) to determine match outcomes — these are reliable.
-2. For EVERY leg, search individually if needed — do not skip a leg just because others are resolved.
-3. For handicap/line bets (e.g. "Essendon (+40.5)"): apply the handicap to the confirmed score.
-4. For player prop bets (e.g. "Kysaiah Pickett 2+ Goals", "Isaac Heeney 20+ Disposals", "Jed Walter 2+ Goals"):
-   - Search specifically for "[player name] stats [game] [date]" or "[player name] goals/disposals [teams] [year]"
-   - These stats are published on AFL.com.au, Fox Sports, and Champion Data within 1 hour of game ending
-   - A "goal" in AFL = a 6-point score. "2+ Goals" means the player kicked at least 2 goals.
-5. For "Big Win Little Win" / margin bets: check the final margin against the selection (e.g. "Sydney Swans 1 to 39" means Swans won by 1-39 points).
-6. Only mark "won" or "lost" if you have a confirmed result. Mark "pending" only if the event genuinely hasn't happened yet.
-7. Mark "void" if the event was cancelled or abandoned.
-8. IMPORTANT: If any leg in a multi is "void", set needs_review=true.
-9. Return ONLY valid JSON — no markdown, no explanation outside the JSON. Include ALL legs in the legs array.
+Rules:
+- Search for the event result
+- "won" or "lost" only if confirmed. "pending" if event hasn't concluded yet. "void" if cancelled.
+- For multi bets with void legs set needs_review=true
 
-Return this exact JSON shape:
+Respond with ONLY this JSON, nothing else:
 ${jsonShape}`
 
-  const userMessage = `Check the result of this bet and return JSON:\n\n${betDesc}`
+  const userMessage = `Return JSON only. Check this bet:\n\n${betDesc}`
   const messages = [{ role: 'user', content: userMessage }]
 
   // ── Step 3: Agentic loop with web search fallback ──────────────────────────
