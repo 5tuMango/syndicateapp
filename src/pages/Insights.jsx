@@ -81,26 +81,39 @@ export default function Insights() {
     })
   }, [bets, members])
 
-  // ── Win rate by sport ─────────────────────────────────────────────────────
+  // ── Win rate by sport — based on individual legs (includes multi legs) ──────
   const bySport = useMemo(() => {
-    const usedSports = [...new Set(bets.map((b) => b.sport))].sort()
-    return members.map((m) => {
-      const row = { name: m.full_name || m.username }
-      for (const sport of usedSports) {
-        const mb = bets.filter(
-          (b) => b.user_id === m.id && b.sport === sport && b.outcome !== 'void' && b.outcome !== 'pending'
-        )
-        if (mb.length === 0) {
-          row[sport] = null
-        } else {
-          const won = mb.filter((b) => b.outcome === 'won').length
-          row[sport] = { w: won, l: mb.length - won, rate: Math.round((won / mb.length) * 100) }
-        }
+    // Collect all resolved legs with their sport (leg.sport takes priority, fall back to parent bet.sport)
+    const resolvedLegs = bets.flatMap((b) => {
+      const legs = b.bet_legs || []
+      if (legs.length > 0) {
+        return legs
+          .filter((l) => l.outcome === 'won' || l.outcome === 'lost')
+          .map((l) => ({ sport: l.sport || b.sport, outcome: l.outcome, user_id: b.user_id }))
       }
-      return { member: m, sports: row }
+      // Single bets with no legs — use the bet itself
+      if (b.outcome === 'won' || b.outcome === 'lost') {
+        return [{ sport: b.sport, outcome: b.outcome, user_id: b.user_id }]
+      }
+      return []
     })
+
+    const usedSports = [...new Set(resolvedLegs.map((l) => l.sport).filter(Boolean))].sort()
+
+    return {
+      usedSports,
+      byMember: members.map((m) => {
+        const myLegs = resolvedLegs.filter((l) => l.user_id === m.id)
+        const sportRows = usedSports.map((sport) => {
+          const legs = myLegs.filter((l) => l.sport === sport)
+          if (legs.length === 0) return { sport, w: 0, l: 0, rate: null }
+          const won = legs.filter((l) => l.outcome === 'won').length
+          return { sport, w: won, l: legs.length - won, rate: Math.round((won / legs.length) * 100) }
+        }).filter((r) => r.w + r.l > 0)
+        return { member: m, sportRows }
+      }),
+    }
   }, [bets, members])
-  const usedSports = useMemo(() => [...new Set(bets.map((b) => b.sport))].sort(), [bets])
 
   // ── Multi bet stats ───────────────────────────────────────────────────────
   const multiStats = useMemo(() => {
@@ -152,10 +165,25 @@ export default function Insights() {
       const bestWin = mb
         .filter((b) => b.outcome === 'won')
         .reduce((best, b) => Math.max(best, calcProfitLoss(b)), 0)
-      const biggestLoss = mb
-        .filter((b) => b.outcome === 'lost')
-        .reduce((worst, b) => Math.min(worst, calcProfitLoss(b)), 0)
-      return { member: m, avgOdds, avgStake, pctMulti, winRate, bestWin, biggestLoss, empty: false }
+
+      // Stake vs odds correlation: bucket bets into odds ranges, show avg stake per bucket
+      const oddsRanges = [
+        { label: '1.01–1.5', min: 1.01, max: 1.5 },
+        { label: '1.51–3.0', min: 1.51, max: 3.0 },
+        { label: '3.01–10', min: 3.01, max: 10 },
+        { label: '10+', min: 10.01, max: Infinity },
+      ]
+      const stakeByOdds = oddsRanges.map(({ label, min, max }) => {
+        const group = mb.filter((b) => {
+          const o = parseFloat(b.odds)
+          return o >= min && o <= max
+        })
+        if (group.length === 0) return { label, avgStake: null, count: 0 }
+        const avg = group.reduce((s, b) => s + parseFloat(b.stake), 0) / group.length
+        return { label, avgStake: avg, count: group.length }
+      }).filter((r) => r.count > 0)
+
+      return { member: m, avgOdds, avgStake, pctMulti, winRate, bestWin, stakeByOdds, empty: false }
     })
   }, [bets, members])
 
@@ -294,41 +322,42 @@ export default function Insights() {
 
           {/* ── Tab 1: By Sport ────────────────────────────────────────────── */}
           {tab === 1 && (
-            <Section title="Win Rate by Sport">
-              {usedSports.length === 0 ? (
-                <p className="text-slate-500 text-sm py-4 text-center">No resolved bets yet.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-slate-400 text-xs uppercase tracking-wide border-b border-slate-700">
-                        <th className="pb-2 pr-4">Member</th>
-                        {usedSports.map((s) => (
-                          <th key={s} className="pb-2 pr-4 text-center">{s}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bySport.map(({ member, sports }) => (
-                        <tr key={member.id} className="border-b border-slate-700/50">
-                          <td className="py-2 pr-4 text-white font-medium">{displayName(member)}</td>
-                          {usedSports.map((s) => {
-                            const d = sports[s]
-                            if (!d) return <td key={s} className="py-2 pr-4 text-center text-slate-600">—</td>
-                            return (
-                              <td key={s} className="py-2 pr-4 text-center">
-                                <span className={`font-semibold ${rateColor(d.rate)}`}>{d.rate}%</span>
-                                <span className="text-slate-500 text-xs ml-1">({d.w}W/{d.l}L)</span>
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+            <div className="space-y-4">
+              <p className="text-slate-500 text-xs">Win rate based on individual legs (including legs within multis), grouped by sport.</p>
+              {bySport.byMember.map(({ member, sportRows }) => (
+                <div key={member.id} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+                  <p className="text-white font-semibold mb-3">{displayName(member)}</p>
+                  {sportRows.length === 0 ? (
+                    <p className="text-slate-500 text-sm">No resolved legs yet.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-slate-400 text-xs uppercase tracking-wide border-b border-slate-700">
+                            <th className="pb-2 pr-4">Sport</th>
+                            <th className="pb-2 pr-4 text-right">W</th>
+                            <th className="pb-2 pr-4 text-right">L</th>
+                            <th className="pb-2 pr-4 text-right">Total Legs</th>
+                            <th className="pb-2 text-right">Win Rate</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sportRows.sort((a, b) => (b.w + b.l) - (a.w + a.l)).map((r) => (
+                            <tr key={r.sport} className="border-b border-slate-700/50">
+                              <td className="py-2 pr-4 text-slate-200">{r.sport}</td>
+                              <td className="py-2 pr-4 text-right text-green-400">{r.w}</td>
+                              <td className="py-2 pr-4 text-right text-red-400">{r.l}</td>
+                              <td className="py-2 pr-4 text-right text-slate-400">{r.w + r.l}</td>
+                              <td className="py-2 text-right">{rateCell(r.rate)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-              )}
-            </Section>
+              ))}
+            </div>
           )}
 
           {/* ── Tab 2: Leg Types ───────────────────────────────────────────── */}
@@ -411,21 +440,46 @@ export default function Insights() {
                   {row.empty ? (
                     <p className="text-slate-500 text-sm">No bets yet.</p>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      <Stat label="Avg Odds" value={row.avgOdds.toFixed(2)} />
-                      <Stat label="Avg Stake" value={`$${row.avgStake.toFixed(2)}`} />
-                      <Stat label="% Multis" value={`${row.pctMulti}%`} />
-                      <Stat
-                        label="Win Rate"
-                        value={row.winRate !== null ? `${row.winRate}%` : '—'}
-                        color={row.winRate !== null ? rateColor(row.winRate) : 'text-slate-400'}
-                      />
-                      <Stat label="Best Win" value={formatCurrency(row.bestWin)} color="text-green-400" />
-                      <Stat
-                        label="Biggest Loss"
-                        value={row.biggestLoss < 0 ? formatCurrency(row.biggestLoss) : '$0.00'}
-                        color={row.biggestLoss < 0 ? 'text-red-400' : 'text-slate-400'}
-                      />
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <Stat label="Avg Odds" value={row.avgOdds.toFixed(2)} />
+                        <Stat label="Avg Stake" value={`$${row.avgStake.toFixed(2)}`} />
+                        <Stat label="% Multis" value={`${row.pctMulti}%`} />
+                        <Stat
+                          label="Win Rate"
+                          value={row.winRate !== null ? `${row.winRate}%` : '—'}
+                          color={row.winRate !== null ? rateColor(row.winRate) : 'text-slate-400'}
+                        />
+                        <Stat label="Best Win" value={formatCurrency(row.bestWin)} color="text-green-400" />
+                      </div>
+
+                      {/* Stake vs Odds correlation */}
+                      {row.stakeByOdds.length > 0 && (
+                        <div>
+                          <p className="text-slate-400 text-xs uppercase tracking-wide mb-2">Avg Stake by Odds Range</p>
+                          <div className="space-y-2">
+                            {row.stakeByOdds.map((r) => {
+                              const maxStake = Math.max(...row.stakeByOdds.map((x) => x.avgStake))
+                              const pct = Math.round((r.avgStake / maxStake) * 100)
+                              return (
+                                <div key={r.label} className="flex items-center gap-3">
+                                  <span className="text-slate-400 text-xs w-20 shrink-0">{r.label}</span>
+                                  <div className="flex-1 bg-slate-700 rounded-full h-2">
+                                    <div
+                                      className="bg-green-500 h-2 rounded-full"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-slate-200 text-xs w-16 text-right shrink-0">
+                                    ${r.avgStake.toFixed(2)} <span className="text-slate-500">({r.count})</span>
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <p className="text-slate-600 text-xs mt-2">Bar width = relative avg stake. Count = number of bets in that range.</p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
