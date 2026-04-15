@@ -337,7 +337,8 @@ export default function Insights() {
                         <th className="pb-2 pr-4">Member</th>
                         <th className="pb-2 pr-4 text-right">Last 7d</th>
                         <th className="pb-2 pr-4 text-right">Last 30d</th>
-                        <th className="pb-2 text-right">All Time</th>
+                        <th className="pb-2 pr-4 text-right">All Time</th>
+                        <th className="pb-2 text-right">Last Win</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -346,7 +347,17 @@ export default function Insights() {
                           <td className="py-2 pr-4 text-white font-medium">{displayName(row)}</td>
                           <td className="py-2 pr-4 text-right">{rateCell(row['7d'])}</td>
                           <td className="py-2 pr-4 text-right">{rateCell(row['30d'])}</td>
-                          <td className="py-2 text-right">{rateCell(row['all'])}</td>
+                          <td className="py-2 pr-4 text-right">{rateCell(row['all'])}</td>
+                          <td className="py-2 text-right">
+                            {row.daysSinceWin === null
+                              ? <span className="text-slate-600">—</span>
+                              : row.daysSinceWin === 0
+                              ? <span className="text-green-400 font-semibold">Today</span>
+                              : row.daysSinceWin === 1
+                              ? <span className="text-green-400">Yesterday</span>
+                              : <span className={row.daysSinceWin > 14 ? 'text-red-400' : row.daysSinceWin > 7 ? 'text-yellow-400' : 'text-slate-300'}>{row.daysSinceWin}d ago</span>
+                            }
+                          </td>
                         </tr>
                       ))}
                     </tbody>
