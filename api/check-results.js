@@ -131,7 +131,7 @@ export default async function handler(req, res) {
         results.push({ betId: bet.id, outcome: 'pending', error: err.message })
       }
 
-      if (bets.length > 1) await sleep(600)
+      if (bets.length > 1) await sleep(1000) // 1s between bets
     }
 
     return res.status(200).json({ checked: bets.length, results })
