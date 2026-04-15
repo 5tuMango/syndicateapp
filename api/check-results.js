@@ -60,20 +60,12 @@ export default async function handler(req, res) {
 
     for (const bet of bets) {
       try {
-        // ── Short-circuit: if any leg is already lost, the multi is lost ───────
-        if (bet.bet_type === 'multi' && bet.bet_legs?.some((l) => l.outcome === 'lost')) {
-          await sbFetch(
-            `${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`,
-            'PATCH',
-            { outcome: 'lost', updated_at: new Date().toISOString() },
-            SUPABASE_URL,
-            SUPABASE_KEY
-          )
-          results.push({ betId: bet.id, outcome: 'lost', confidence: 'high', reasoning: 'At least one leg already marked lost.' })
-          continue
-        }
-
         const check = await checkBetResult(ANTHROPIC_KEY, API_SPORTS_KEY, bet)
+
+        // ── If any leg is already lost, multi outcome is lost regardless ────────
+        if (bet.bet_type === 'multi' && bet.bet_legs?.some((l) => l.outcome === 'lost')) {
+          check.outcome = 'lost'
+        }
 
         if (check.needs_review) {
           results.push({ betId: bet.id, outcome: 'pending', needs_review: true, reasoning: check.reasoning })
