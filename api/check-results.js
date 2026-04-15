@@ -47,8 +47,9 @@ export default async function handler(req, res) {
   const betId = req.method === 'POST' ? req.body?.betId : null
 
   try {
-    // Cron: only pending bets. Manual check (betId): fetch regardless of outcome so we can resolve pending legs
-    let fetchUrl = `${SUPABASE_URL}/rest/v1/bets?outcome=eq.pending&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)`
+    // Manual check (betId): fetch that specific bet regardless of outcome
+    // Cron (no betId): fetch ONE pending bet at a time to stay within 30s timeout
+    let fetchUrl = `${SUPABASE_URL}/rest/v1/bets?outcome=eq.pending&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)&order=date.asc&limit=1`
     if (betId) fetchUrl = `${SUPABASE_URL}/rest/v1/bets?id=eq.${betId}&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)`
 
     const betsRes = await sbFetch(fetchUrl, 'GET', null, SUPABASE_URL, SUPABASE_KEY)
@@ -84,7 +85,7 @@ export default async function handler(req, res) {
                 SUPABASE_KEY
               )
             }
-            await sleep(1000) // 1s between leg checks
+            await sleep(200) // brief pause between leg checks
           }
 
           // Re-fetch all legs to derive parent outcome
