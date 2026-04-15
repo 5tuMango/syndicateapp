@@ -49,7 +49,9 @@ export default async function handler(req, res) {
   try {
     // Manual check (betId): fetch that specific bet regardless of outcome
     // Cron (no betId): fetch ONE pending bet at a time to stay within 30s timeout
-    let fetchUrl = `${SUPABASE_URL}/rest/v1/bets?outcome=eq.pending&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)&order=date.asc&limit=2`
+    // Only check bets where the date is today or in the past — future bets can't be resolved yet
+    const today = new Date().toISOString().slice(0, 10)
+    let fetchUrl = `${SUPABASE_URL}/rest/v1/bets?outcome=eq.pending&date=lte.${today}&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)&order=date.asc&limit=2`
     if (betId) fetchUrl = `${SUPABASE_URL}/rest/v1/bets?id=eq.${betId}&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)`
 
     const betsRes = await sbFetch(fetchUrl, 'GET', null, SUPABASE_URL, SUPABASE_KEY)
