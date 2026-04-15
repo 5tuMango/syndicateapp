@@ -3,7 +3,8 @@
 // GET  /api/check-results  (with cron auth header)  → check all pending bets
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-sonnet-4-6'
+const MODEL = 'claude-haiku-4-5-20251001'
+const MODEL_SEARCH = 'claude-sonnet-4-6' // Sonnet for web search — Haiku doesn't reliably use tools
 
 // ── API-Sports config per sport ───────────────────────────────────────────────
 // These sports get confirmed scores fetched before Claude is called.
@@ -61,59 +62,70 @@ export default async function handler(req, res) {
 
     for (const bet of bets) {
       try {
-        const check = await checkBetResult(ANTHROPIC_KEY, API_SPORTS_KEY, bet)
+        const pendingLegs = bet.bet_type === 'multi'
+          ? [...(bet.bet_legs || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).filter((l) => l.outcome === 'pending')
+          : []
 
-        // ── If any leg is already lost, multi outcome is lost regardless ────────
-        if (bet.bet_type === 'multi' && bet.bet_legs?.some((l) => l.outcome === 'lost')) {
-          check.outcome = 'lost'
-        }
-
-        if (check.needs_review) {
-          results.push({ betId: bet.id, outcome: 'pending', needs_review: true, reasoning: check.reasoning })
-          continue
-        }
-
-        // ── Update individual legs regardless of overall outcome ───────────────
-        // Match by event+description+selection rather than index (index breaks with SGMs)
-        if (bet.bet_type === 'multi' && check.legs?.length > 0 && bet.bet_legs?.length > 0) {
-          for (const checkLeg of check.legs) {
-            if (!checkLeg.outcome || checkLeg.outcome === 'pending') continue
-            // Find the best matching db leg by leg_index first, then fuzzy match
-            const sortedLegs = [...bet.bet_legs].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-            let dbLeg = sortedLegs[checkLeg.leg_index] || null
-            // Fuzzy fallback: match by selection or description
-            if (!dbLeg || dbLeg.outcome !== 'pending') {
-              dbLeg = bet.bet_legs.find((l) =>
-                l.outcome === 'pending' && (
-                  (l.selection && checkLeg.result && checkLeg.result.toLowerCase().includes(l.selection.toLowerCase().substring(0, 10))) ||
-                  (l.description && checkLeg.result && checkLeg.result.toLowerCase().includes(l.description.toLowerCase().substring(0, 8)))
-                )
-              ) || null
+        if (bet.bet_type === 'multi' && pendingLegs.length > 0) {
+          // Check each pending leg individually with a delay between calls
+          for (const leg of pendingLegs) {
+            const result = await checkSingleLeg(ANTHROPIC_KEY, leg, bet.date)
+            console.log(`  Leg [${leg.selection || leg.description}] → ${result.outcome} (${result.reasoning || ''})`)
+            if (result.outcome === 'void') {
+              results.push({ betId: bet.id, outcome: 'pending', needs_review: true, reasoning: `Void leg: ${leg.selection || leg.description}` })
+              continue
             }
-            if (dbLeg && dbLeg.outcome === 'pending') {
+            if (result.outcome && result.outcome !== 'pending') {
               await sbFetch(
-                `${SUPABASE_URL}/rest/v1/bet_legs?id=eq.${dbLeg.id}`,
+                `${SUPABASE_URL}/rest/v1/bet_legs?id=eq.${leg.id}`,
                 'PATCH',
-                { outcome: checkLeg.outcome },
+                { outcome: result.outcome },
                 SUPABASE_URL,
                 SUPABASE_KEY
               )
             }
+            await sleep(1000) // 1s between leg checks
           }
+
+          // Re-fetch all legs to derive parent outcome
+          const allLegs = await sbFetch(
+            `${SUPABASE_URL}/rest/v1/bet_legs?bet_id=eq.${bet.id}&select=outcome`,
+            'GET', null, SUPABASE_URL, SUPABASE_KEY
+          ).then((r) => r.json())
+
+          const anyLost = allLegs.some((l) => l.outcome === 'lost')
+          const anyPending = allLegs.some((l) => l.outcome === 'pending')
+          const finalOutcome = anyLost ? 'lost' : anyPending ? 'pending' : 'won'
+
+          if (finalOutcome !== 'pending') {
+            await sbFetch(
+              `${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`,
+              'PATCH',
+              { outcome: finalOutcome, updated_at: new Date().toISOString() },
+              SUPABASE_URL,
+              SUPABASE_KEY
+            )
+          }
+          results.push({ betId: bet.id, outcome: finalOutcome })
+
+        } else {
+          // Single bet or multi with no pending legs
+          const check = await checkBetResult(ANTHROPIC_KEY, API_SPORTS_KEY, bet)
+          if (bet.bet_type === 'multi' && bet.bet_legs?.some((l) => l.outcome === 'lost')) {
+            check.outcome = 'lost'
+          }
+          if (check.outcome !== 'pending') {
+            await sbFetch(
+              `${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`,
+              'PATCH',
+              { outcome: check.outcome, updated_at: new Date().toISOString() },
+              SUPABASE_URL,
+              SUPABASE_KEY
+            )
+          }
+          results.push({ betId: bet.id, outcome: check.outcome, confidence: check.confidence, reasoning: check.reasoning })
         }
 
-        // ── Update parent bet outcome (skip if still pending) ──────────────────
-        if (check.outcome !== 'pending') {
-          await sbFetch(
-            `${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`,
-            'PATCH',
-            { outcome: check.outcome, updated_at: new Date().toISOString() },
-            SUPABASE_URL,
-            SUPABASE_KEY
-          )
-        }
-
-        results.push({ betId: bet.id, outcome: check.outcome, confidence: check.confidence, reasoning: check.reasoning })
       } catch (err) {
         results.push({ betId: bet.id, outcome: 'pending', error: err.message })
       }
@@ -193,11 +205,99 @@ async function fetchApiSportsGames(sport, dateStr, apiKey) {
   }
 }
 
+// ── Check a single leg with a focused search ──────────────────────────────────
+async function checkSingleLeg(apiKey, leg, betDate) {
+  let date = leg.event_time ? leg.event_time.split('T')[0] : betDate
+  // Fix stale years — if event_time year is before the bet was placed, use the bet date year
+  if (date && betDate) {
+    const eventYear = parseInt(date.split('-')[0])
+    const betYear = parseInt(betDate.split('-')[0])
+    if (eventYear < betYear) {
+      date = betDate.split('-')[0] + date.substring(4) // replace year with bet year
+    }
+  }
+  const event = leg.event || ''
+  const description = leg.description || ''
+  const selection = leg.selection || ''
+  const sport = leg.sport || ''
+  const year = date ? date.split('-')[0] : new Date().getFullYear()
+
+  const system = `You are checking the result of a single Australian sports bet leg. Search the web and return ONLY valid JSON — no markdown, no explanation.
+
+JSON format: { "outcome": "won" | "lost" | "void" | "pending", "confidence": "high" | "medium" | "low", "reasoning": "brief" }
+
+Rules:
+- Search using the exact event name, player name, and date (year: ${year})
+- Player goals (AFL): search "[player] goals [teams] ${year}" on AFL.com.au or Fox Sports
+- Big Win Little Win / margin: find final score margin and check if it's in the stated range
+- Handicap/line: apply the handicap to the confirmed final score
+- Only use "pending" if the event has NOT happened yet
+- If the game was played, find the result and commit to won or lost
+- Return ONLY the JSON object`
+
+  const userMessage = `Sport: ${sport}
+Event: ${event} (${date})
+Market: ${description}
+Selection: ${selection}
+
+Search for this result and return JSON.`
+
+  const messages = [{ role: 'user', content: userMessage }]
+
+  for (let i = 0; i < 5; i++) {
+    const response = await fetch(ANTHROPIC_API, {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'web-search-2025-03-05',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MODEL_SEARCH,
+        max_tokens: 512,
+        system,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages,
+      }),
+    })
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      throw new Error(err?.error?.message || `Anthropic API ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (data.stop_reason === 'end_turn') {
+      const textBlock = data.content.find((b) => b.type === 'text')
+      if (!textBlock) return { outcome: 'pending', confidence: 'low' }
+      console.log('  Raw AI response:', textBlock.text.substring(0, 300))
+      return parseClaudeResult(textBlock.text, false)
+    }
+
+    if (data.stop_reason === 'tool_use') {
+      messages.push({ role: 'assistant', content: data.content })
+      const toolResults = data.content
+        .filter((b) => b.type === 'tool_use')
+        .map((b) => ({ type: 'tool_result', tool_use_id: b.id, content: '' }))
+      if (toolResults.length > 0) messages.push({ role: 'user', content: toolResults })
+    } else {
+      break
+    }
+  }
+
+  return { outcome: 'pending', confidence: 'low', reasoning: 'Could not determine result' }
+}
+
 // ── Core: ask Claude to determine the result ──────────────────────────────────
 async function checkBetResult(apiKey, apiSportsKey, bet) {
   const isMulti = bet.bet_type === 'multi'
+  // Only check pending legs — already resolved legs don't need checking
   const legs = isMulti
-    ? [...(bet.bet_legs || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    ? [...(bet.bet_legs || [])]
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        .filter((l) => l.outcome === 'pending')
     : []
 
   // ── Step 1: Fetch confirmed scores from API-Sports where available ──────────

@@ -64,10 +64,11 @@ createServer(async (req, res) => {
 
   try {
     if (req.url === '/api/extract-bet' && req.method === 'POST') {
-      const mod = await import('./api/extract-bet.js')
+      const mod = await import(`./api/extract-bet.js?t=${Date.now()}`)
       await runHandler(mod, req, res, body)
     } else if (req.url === '/api/check-results' && (req.method === 'POST' || req.method === 'GET')) {
-      const mod = await import('./api/check-results.js')
+      console.log(`→ ${req.method} /api/check-results`)
+      const mod = await import(`./api/check-results.js?t=${Date.now()}`)
       await runHandler(mod, req, res, body)
     } else {
       res.writeHead(404)
