@@ -43,18 +43,29 @@ export default function Insights() {
     fetchData()
   }, [])
 
-  // ── Cumulative P&L chart data ──────────────────────────────────────────────
+  // ── Total winnings (payout from won bets only) ────────────────────────────
+  const totalWinnings = useMemo(() => {
+    return bets
+      .filter((b) => b.outcome === 'won')
+      .reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
+  }, [bets])
+
+  // ── Cumulative P&L + cumulative winnings chart data ───────────────────────
   const pnlChartData = useMemo(() => {
     const resolved = bets.filter((b) => b.outcome !== 'pending')
     const dates = [...new Set(resolved.map((b) => b.date))].sort()
-    const running = Object.fromEntries(members.map((m) => [m.id, 0]))
+    const runningPL = Object.fromEntries(members.map((m) => [m.id, 0]))
+    let runningWinnings = 0
     return dates.map((date) => {
       resolved.filter((b) => b.date === date).forEach((b) => {
-        running[b.user_id] = (running[b.user_id] || 0) + calcProfitLoss(b)
+        runningPL[b.user_id] = (runningPL[b.user_id] || 0) + calcProfitLoss(b)
+        if (b.outcome === 'won') {
+          runningWinnings += parseFloat(b.stake) * parseFloat(b.odds)
+        }
       })
-      const point = { date: formatChartDate(date) }
+      const point = { date: formatChartDate(date), __winnings: parseFloat(runningWinnings.toFixed(2)) }
       members.forEach((m) => {
-        point[m.id] = parseFloat(running[m.id].toFixed(2))
+        point[m.id] = parseFloat(runningPL[m.id].toFixed(2))
       })
       return point
     })
@@ -77,7 +88,14 @@ export default function Insights() {
         const won = resolved.filter((b) => b.outcome === 'won').length
         rates[label] = resolved.length ? Math.round((won / resolved.length) * 100) : null
       }
-      return { ...m, ...rates }
+      // Days since last win
+      const lastWin = mb
+        .filter((b) => b.outcome === 'won')
+        .sort((a, b) => b.date.localeCompare(a.date))[0]
+      const daysSinceWin = lastWin
+        ? Math.floor((now - new Date(lastWin.date + 'T00:00:00')) / 864e5)
+        : null
+      return { ...m, ...rates, daysSinceWin }
     })
   }, [bets, members])
 
@@ -250,7 +268,14 @@ export default function Insights() {
           {/* ── Tab 0: Overview ────────────────────────────────────────────── */}
           {tab === 0 && (
             <div className="space-y-6">
-              <Section title="Cumulative P&L Over Time">
+              {/* Hero: Total Winnings */}
+              <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 text-center">
+                <p className="text-slate-400 text-xs uppercase tracking-widest mb-2">Total Winnings</p>
+                <p className="text-5xl font-bold text-green-400">{formatCurrency(totalWinnings)}</p>
+                <p className="text-slate-500 text-xs mt-2">Sum of all payouts from winning bets</p>
+              </div>
+
+              <Section title="Cumulative P&L & Winnings Over Time">
                 {pnlChartData.length < 2 ? (
                   <p className="text-slate-500 text-sm py-4 text-center">Not enough resolved bets for a trend yet.</p>
                 ) : (
@@ -267,12 +292,14 @@ export default function Insights() {
                         contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
                         labelStyle={{ color: '#e2e8f0' }}
                         formatter={(v, name) => {
+                          if (name === '__winnings') return [formatCurrency(v), 'Total Winnings']
                           const m = members.find((m) => m.id === name)
                           return [formatCurrency(v), displayName(m) || name]
                         }}
                       />
                       <Legend
                         formatter={(value) => {
+                          if (value === '__winnings') return <span style={{ color: '#4ade80', fontSize: 12 }}>Total Winnings</span>
                           const m = members.find((m) => m.id === value)
                           return <span style={{ color: '#94a3b8', fontSize: 12 }}>{displayName(m) || value}</span>
                         }}
@@ -288,6 +315,15 @@ export default function Insights() {
                           activeDot={{ r: 4 }}
                         />
                       ))}
+                      <Line
+                        type="monotone"
+                        dataKey="__winnings"
+                        stroke="#4ade80"
+                        strokeWidth={2}
+                        strokeDasharray="5 3"
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
                     </LineChart>
                   </ResponsiveContainer>
                 )}
