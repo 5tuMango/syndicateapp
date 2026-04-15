@@ -1,0 +1,9 @@
+{
+  "rewrites": [{ "source": "/(.*)", "destination": "/" }],
+  "crons": [
+    {
+      "path": "/api/check-results",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}

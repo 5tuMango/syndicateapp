@@ -1,0 +1,408 @@
+import { useState, useEffect, useMemo } from 'react'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts'
+import { supabase } from '../lib/supabase'
+import { calcProfitLoss, formatCurrency, profitLossColor, SPORTS } from '../lib/utils'
+
+const TABS = ['Overview', 'By Sport', 'Multi Bets', 'Risk Profile']
+
+// One colour per member (up to 10)
+const LINE_COLORS = [
+  '#22c55e', '#3b82f6', '#a855f7', '#f59e0b',
+  '#ef4444', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#8b5cf6',
+]
+
+export default function Insights() {
+  const [bets, setBets] = useState([])
+  const [members, setMembers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState(0)
+
+  useEffect(() => {
+    async function fetchData() {
+      const [betsRes, membersRes] = await Promise.all([
+        supabase
+          .from('bets')
+          .select('*, bet_legs(*)')
+          .order('date', { ascending: true })
+          .order('created_at', { ascending: true }),
+        supabase.from('profiles').select('id, username, full_name').order('full_name'),
+      ])
+      setBets(betsRes.data || [])
+      setMembers(membersRes.data || [])
+      setLoading(false)
+    }
+    fetchData()
+  }, [])
+
+  // ── Cumulative P&L chart data ──────────────────────────────────────────────
+  const pnlChartData = useMemo(() => {
+    const resolved = bets.filter((b) => b.outcome !== 'pending')
+    const dates = [...new Set(resolved.map((b) => b.date))].sort()
+    const running = Object.fromEntries(members.map((m) => [m.id, 0]))
+    return dates.map((date) => {
+      resolved.filter((b) => b.date === date).forEach((b) => {
+        running[b.user_id] = (running[b.user_id] || 0) + calcProfitLoss(b)
+      })
+      const point = { date: formatChartDate(date) }
+      members.forEach((m) => {
+        point[m.id] = parseFloat(running[m.id].toFixed(2))
+      })
+      return point
+    })
+  }, [bets, members])
+
+  // ── Strike rate table (7d / 30d / all-time) ───────────────────────────────
+  const strikeRates = useMemo(() => {
+    const now = new Date()
+    const cutoffs = {
+      '7d': new Date(now - 7 * 864e5).toISOString().slice(0, 10),
+      '30d': new Date(now - 30 * 864e5).toISOString().slice(0, 10),
+      all: '1970-01-01',
+    }
+    return members.map((m) => {
+      const mb = bets.filter((b) => b.user_id === m.id)
+      const rates = {}
+      for (const [label, cutoff] of Object.entries(cutoffs)) {
+        const period = mb.filter((b) => b.date >= cutoff && b.outcome !== 'void')
+        const resolved = period.filter((b) => b.outcome !== 'pending')
+        const won = resolved.filter((b) => b.outcome === 'won').length
+        rates[label] = resolved.length ? Math.round((won / resolved.length) * 100) : null
+      }
+      return { ...m, ...rates }
+    })
+  }, [bets, members])
+
+  // ── Win rate by sport ─────────────────────────────────────────────────────
+  const bySport = useMemo(() => {
+    const usedSports = [...new Set(bets.map((b) => b.sport))].sort()
+    return members.map((m) => {
+      const row = { name: m.full_name || m.username }
+      for (const sport of usedSports) {
+        const mb = bets.filter(
+          (b) => b.user_id === m.id && b.sport === sport && b.outcome !== 'void' && b.outcome !== 'pending'
+        )
+        if (mb.length === 0) {
+          row[sport] = null
+        } else {
+          const won = mb.filter((b) => b.outcome === 'won').length
+          row[sport] = { w: won, l: mb.length - won, rate: Math.round((won / mb.length) * 100) }
+        }
+      }
+      return { member: m, sports: row }
+    })
+  }, [bets, members])
+  const usedSports = useMemo(() => [...new Set(bets.map((b) => b.sport))].sort(), [bets])
+
+  // ── Multi bet stats ───────────────────────────────────────────────────────
+  const multiStats = useMemo(() => {
+    return members.map((m) => {
+      const multis = bets.filter((b) => b.user_id === m.id && b.bet_type === 'multi')
+      const resolved = multis.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
+      const won = resolved.filter((b) => b.outcome === 'won').length
+
+      // "Lost by 1 leg" = multi where exactly one leg is lost and the rest won
+      const lostBy1 = multis.filter((b) => {
+        const legs = b.bet_legs || []
+        const nonVoid = legs.filter((l) => l.outcome !== 'void')
+        const lost = nonVoid.filter((l) => l.outcome === 'lost').length
+        return b.outcome === 'lost' && lost === 1
+      }).length
+
+      // Leg win rate across all multi legs
+      const allLegs = multis.flatMap((b) => b.bet_legs || []).filter((l) => l.outcome !== 'void' && l.outcome !== 'pending')
+      const legsWon = allLegs.filter((l) => l.outcome === 'won').length
+
+      // Avg legs per multi
+      const legCounts = multis.map((b) => (b.bet_legs || []).length)
+      const avgLegs = legCounts.length ? (legCounts.reduce((s, n) => s + n, 0) / legCounts.length).toFixed(1) : '—'
+
+      return {
+        member: m,
+        total: multis.length,
+        won,
+        lost: resolved.length - won,
+        pending: multis.filter((b) => b.outcome === 'pending').length,
+        lostBy1,
+        legWinRate: allLegs.length ? Math.round((legsWon / allLegs.length) * 100) : null,
+        avgLegs,
+        pl: multis.reduce((s, b) => s + calcProfitLoss(b), 0),
+      }
+    })
+  }, [bets, members])
+
+  // ── Risk profile ─────────────────────────────────────────────────────────
+  const riskProfiles = useMemo(() => {
+    return members.map((m) => {
+      const mb = bets.filter((b) => b.user_id === m.id && b.outcome !== 'void')
+      if (mb.length === 0) return { member: m, empty: true }
+      const avgOdds = mb.reduce((s, b) => s + parseFloat(b.odds), 0) / mb.length
+      const avgStake = mb.reduce((s, b) => s + parseFloat(b.stake), 0) / mb.length
+      const pctMulti = Math.round((mb.filter((b) => b.bet_type === 'multi').length / mb.length) * 100)
+      const resolved = mb.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
+      const winRate = resolved.length ? Math.round((resolved.filter((b) => b.outcome === 'won').length / resolved.length) * 100) : null
+      const bestWin = mb
+        .filter((b) => b.outcome === 'won')
+        .reduce((best, b) => Math.max(best, calcProfitLoss(b)), 0)
+      const biggestLoss = mb
+        .filter((b) => b.outcome === 'lost')
+        .reduce((worst, b) => Math.min(worst, calcProfitLoss(b)), 0)
+      return { member: m, avgOdds, avgStake, pctMulti, winRate, bestWin, biggestLoss, empty: false }
+    })
+  }, [bets, members])
+
+  if (loading) {
+    return <div className="text-center text-slate-400 py-16">Loading…</div>
+  }
+
+  const noData = bets.length === 0
+  const displayName = (m) => m.full_name || m.username
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl font-bold text-white">Insights</h1>
+        <p className="text-slate-400 text-sm mt-0.5">Deep analytics across the syndicate</p>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-slate-800/60 rounded-lg border border-slate-700 p-1">
+        {TABS.map((t, i) => (
+          <button
+            key={t}
+            onClick={() => setTab(i)}
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === i ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {noData ? (
+        <div className="text-center text-slate-400 py-16">No resolved bets yet — check back after some results come in.</div>
+      ) : (
+        <>
+          {/* ── Tab 0: Overview ────────────────────────────────────────────── */}
+          {tab === 0 && (
+            <div className="space-y-6">
+              <Section title="Cumulative P&L Over Time">
+                {pnlChartData.length < 2 ? (
+                  <p className="text-slate-500 text-sm py-4 text-center">Not enough resolved bets for a trend yet.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <LineChart data={pnlChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                      <YAxis
+                        tick={{ fill: '#94a3b8', fontSize: 11 }}
+                        tickFormatter={(v) => `$${v}`}
+                        width={55}
+                      />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                        labelStyle={{ color: '#e2e8f0' }}
+                        formatter={(v, name) => {
+                          const m = members.find((m) => m.id === name)
+                          return [formatCurrency(v), displayName(m) || name]
+                        }}
+                      />
+                      <Legend
+                        formatter={(value) => {
+                          const m = members.find((m) => m.id === value)
+                          return <span style={{ color: '#94a3b8', fontSize: 12 }}>{displayName(m) || value}</span>
+                        }}
+                      />
+                      {members.map((m, i) => (
+                        <Line
+                          key={m.id}
+                          type="monotone"
+                          dataKey={m.id}
+                          stroke={LINE_COLORS[i % LINE_COLORS.length]}
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </Section>
+
+              <Section title="Strike Rates">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-slate-400 text-xs uppercase tracking-wide border-b border-slate-700">
+                        <th className="pb-2 pr-4">Member</th>
+                        <th className="pb-2 pr-4 text-right">Last 7d</th>
+                        <th className="pb-2 pr-4 text-right">Last 30d</th>
+                        <th className="pb-2 text-right">All Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {strikeRates.map((row) => (
+                        <tr key={row.id} className="border-b border-slate-700/50">
+                          <td className="py-2 pr-4 text-white font-medium">{displayName(row)}</td>
+                          <td className="py-2 pr-4 text-right">{rateCell(row['7d'])}</td>
+                          <td className="py-2 pr-4 text-right">{rateCell(row['30d'])}</td>
+                          <td className="py-2 text-right">{rateCell(row['all'])}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            </div>
+          )}
+
+          {/* ── Tab 1: By Sport ────────────────────────────────────────────── */}
+          {tab === 1 && (
+            <Section title="Win Rate by Sport">
+              {usedSports.length === 0 ? (
+                <p className="text-slate-500 text-sm py-4 text-center">No resolved bets yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-slate-400 text-xs uppercase tracking-wide border-b border-slate-700">
+                        <th className="pb-2 pr-4">Member</th>
+                        {usedSports.map((s) => (
+                          <th key={s} className="pb-2 pr-4 text-center">{s}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bySport.map(({ member, sports }) => (
+                        <tr key={member.id} className="border-b border-slate-700/50">
+                          <td className="py-2 pr-4 text-white font-medium">{displayName(member)}</td>
+                          {usedSports.map((s) => {
+                            const d = sports[s]
+                            if (!d) return <td key={s} className="py-2 pr-4 text-center text-slate-600">—</td>
+                            return (
+                              <td key={s} className="py-2 pr-4 text-center">
+                                <span className={`font-semibold ${rateColor(d.rate)}`}>{d.rate}%</span>
+                                <span className="text-slate-500 text-xs ml-1">({d.w}W/{d.l}L)</span>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Section>
+          )}
+
+          {/* ── Tab 2: Multi Bets ──────────────────────────────────────────── */}
+          {tab === 2 && (
+            <div className="space-y-4">
+              {multiStats.map((row) => (
+                <div key={row.member.id} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+                  <p className="text-white font-semibold mb-3">{displayName(row.member)}</p>
+                  {row.total === 0 ? (
+                    <p className="text-slate-500 text-sm">No multi bets placed.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <Stat label="Multis" value={row.total} />
+                      <Stat label="W / L" value={`${row.won} / ${row.lost}`} />
+                      <Stat label="Pending" value={row.pending} />
+                      <Stat label="P&L" value={formatCurrency(row.pl)} color={profitLossColor(row.pl)} />
+                      <Stat label="Avg Legs" value={row.avgLegs} />
+                      <Stat
+                        label="Leg Win Rate"
+                        value={row.legWinRate !== null ? `${row.legWinRate}%` : '—'}
+                        color={row.legWinRate !== null ? rateColor(row.legWinRate) : 'text-slate-400'}
+                      />
+                      <Stat
+                        label="Lost by 1 Leg"
+                        value={row.lostBy1}
+                        color={row.lostBy1 > 0 ? 'text-red-400' : 'text-slate-400'}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Tab 3: Risk Profile ────────────────────────────────────────── */}
+          {tab === 3 && (
+            <div className="space-y-4">
+              {riskProfiles.map((row) => (
+                <div key={row.member.id} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+                  <p className="text-white font-semibold mb-3">{displayName(row.member)}</p>
+                  {row.empty ? (
+                    <p className="text-slate-500 text-sm">No bets yet.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <Stat label="Avg Odds" value={row.avgOdds.toFixed(2)} />
+                      <Stat label="Avg Stake" value={`$${row.avgStake.toFixed(2)}`} />
+                      <Stat label="% Multis" value={`${row.pctMulti}%`} />
+                      <Stat
+                        label="Win Rate"
+                        value={row.winRate !== null ? `${row.winRate}%` : '—'}
+                        color={row.winRate !== null ? rateColor(row.winRate) : 'text-slate-400'}
+                      />
+                      <Stat label="Best Win" value={formatCurrency(row.bestWin)} color="text-green-400" />
+                      <Stat
+                        label="Biggest Loss"
+                        value={row.biggestLoss < 0 ? formatCurrency(row.biggestLoss) : '$0.00'}
+                        color={row.biggestLoss < 0 ? 'text-red-400' : 'text-slate-400'}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Small helpers ─────────────────────────────────────────────────────────
+function Section({ title, children }) {
+  return (
+    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 space-y-3">
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{title}</p>
+      {children}
+    </div>
+  )
+}
+
+function Stat({ label, value, color = 'text-white' }) {
+  return (
+    <div className="bg-slate-900/60 rounded-lg p-3">
+      <p className="text-slate-400 text-xs uppercase tracking-wide">{label}</p>
+      <p className={`text-lg font-bold mt-0.5 ${color}`}>{value}</p>
+    </div>
+  )
+}
+
+function rateCell(val) {
+  if (val === null) return <span className="text-slate-600">—</span>
+  return <span className={`font-semibold ${rateColor(val)}`}>{val}%</span>
+}
+
+function rateColor(rate) {
+  if (rate >= 55) return 'text-green-400'
+  if (rate >= 40) return 'text-yellow-400'
+  return 'text-red-400'
+}
+
+function formatChartDate(dateStr) {
+  const [, m, d] = dateStr.split('-')
+  return `${parseInt(d)}/${parseInt(m)}`
+}
