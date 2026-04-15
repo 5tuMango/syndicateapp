@@ -73,21 +73,28 @@ export default async function handler(req, res) {
           continue
         }
 
-        if (check.outcome === 'pending') {
-          results.push({ betId: bet.id, outcome: 'pending', confidence: check.confidence, reasoning: check.reasoning })
-          continue
-        }
-
-        // Update bet legs for multi bets
+        // ── Update individual legs regardless of overall outcome ───────────────
+        // Match by event+description+selection rather than index (index breaks with SGMs)
         if (bet.bet_type === 'multi' && check.legs?.length > 0 && bet.bet_legs?.length > 0) {
-          const sortedLegs = [...bet.bet_legs].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-          for (let i = 0; i < check.legs.length && i < sortedLegs.length; i++) {
-            const legOutcome = check.legs[i].outcome
-            if (legOutcome && legOutcome !== 'pending') {
+          for (const checkLeg of check.legs) {
+            if (!checkLeg.outcome || checkLeg.outcome === 'pending') continue
+            // Find the best matching db leg by leg_index first, then fuzzy match
+            const sortedLegs = [...bet.bet_legs].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+            let dbLeg = sortedLegs[checkLeg.leg_index] || null
+            // Fuzzy fallback: match by selection or description
+            if (!dbLeg || dbLeg.outcome !== 'pending') {
+              dbLeg = bet.bet_legs.find((l) =>
+                l.outcome === 'pending' && (
+                  (l.selection && checkLeg.result && checkLeg.result.toLowerCase().includes(l.selection.toLowerCase().substring(0, 10))) ||
+                  (l.description && checkLeg.result && checkLeg.result.toLowerCase().includes(l.description.toLowerCase().substring(0, 8)))
+                )
+              ) || null
+            }
+            if (dbLeg && dbLeg.outcome === 'pending') {
               await sbFetch(
-                `${SUPABASE_URL}/rest/v1/bet_legs?id=eq.${sortedLegs[i].id}`,
+                `${SUPABASE_URL}/rest/v1/bet_legs?id=eq.${dbLeg.id}`,
                 'PATCH',
-                { outcome: legOutcome },
+                { outcome: checkLeg.outcome },
                 SUPABASE_URL,
                 SUPABASE_KEY
               )
@@ -95,14 +102,16 @@ export default async function handler(req, res) {
           }
         }
 
-        // Update parent bet outcome
-        await sbFetch(
-          `${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`,
-          'PATCH',
-          { outcome: check.outcome, updated_at: new Date().toISOString() },
-          SUPABASE_URL,
-          SUPABASE_KEY
-        )
+        // ── Update parent bet outcome (skip if still pending) ──────────────────
+        if (check.outcome !== 'pending') {
+          await sbFetch(
+            `${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`,
+            'PATCH',
+            { outcome: check.outcome, updated_at: new Date().toISOString() },
+            SUPABASE_URL,
+            SUPABASE_KEY
+          )
+        }
 
         results.push({ betId: bet.id, outcome: check.outcome, confidence: check.confidence, reasoning: check.reasoning })
       } catch (err) {
@@ -257,7 +266,7 @@ async function checkBetResult(apiKey, apiSportsKey, bet) {
   "reasoning": "brief explanation",
   "needs_review": false,
   "legs": [
-    { "leg_index": 0, "outcome": "won" | "lost" | "void" | "pending", "result": "brief result" }
+    { "leg_index": 0, "selection": "exact selection text", "outcome": "won" | "lost" | "void" | "pending", "result": "what you found e.g. Essendon lost by 60pts / Pickett had 1 goal" }
   ]
 }`
     : `{
@@ -275,14 +284,17 @@ async function checkBetResult(apiKey, apiSportsKey, bet) {
 
 Your job:
 1. Use the CONFIRMED SCORES above (where provided) to determine match outcomes — these are reliable.
-2. For anything not covered by confirmed scores (horse racing, player props like disposals/goals, tennis, soccer, or any leg with no confirmed score), use web search to find the result.
-3. For handicap bets (e.g. "Essendon (+40.5)"): apply the handicap to the confirmed score to determine won/lost.
-4. For player prop bets (e.g. "Isaac Heeney 20+ Disposals"): web search for the player's stats in that specific game.
-5. Only mark "won" or "lost" if you have a confirmed result. Mark "pending" if unsure or event hasn't happened.
-6. Mark "void" if the event was cancelled or abandoned.
-7. For multi bets: check each leg, then set overall outcome (all legs must win for the multi to win).
+2. For EVERY leg, search individually if needed — do not skip a leg just because others are resolved.
+3. For handicap/line bets (e.g. "Essendon (+40.5)"): apply the handicap to the confirmed score.
+4. For player prop bets (e.g. "Kysaiah Pickett 2+ Goals", "Isaac Heeney 20+ Disposals", "Jed Walter 2+ Goals"):
+   - Search specifically for "[player name] stats [game] [date]" or "[player name] goals/disposals [teams] [year]"
+   - These stats are published on AFL.com.au, Fox Sports, and Champion Data within 1 hour of game ending
+   - A "goal" in AFL = a 6-point score. "2+ Goals" means the player kicked at least 2 goals.
+5. For "Big Win Little Win" / margin bets: check the final margin against the selection (e.g. "Sydney Swans 1 to 39" means Swans won by 1-39 points).
+6. Only mark "won" or "lost" if you have a confirmed result. Mark "pending" only if the event genuinely hasn't happened yet.
+7. Mark "void" if the event was cancelled or abandoned.
 8. IMPORTANT: If any leg in a multi is "void", set needs_review=true.
-9. Return ONLY valid JSON matching the exact shape below — no markdown, no explanation outside the JSON.
+9. Return ONLY valid JSON — no markdown, no explanation outside the JSON. Include ALL legs in the legs array.
 
 Return this exact JSON shape:
 ${jsonShape}`
