@@ -70,8 +70,15 @@ export default async function handler(req, res) {
           : []
 
         if (bet.bet_type === 'multi' && pendingLegs.length > 0) {
+          const today = new Date().toISOString().slice(0, 10)
           // Check each pending leg individually with a delay between calls
           for (const leg of pendingLegs) {
+            // Skip legs whose event hasn't happened yet
+            const legDate = leg.event_time ? leg.event_time.split('T')[0] : null
+            if (legDate && legDate > today) {
+              console.log(`  Leg [${leg.selection || leg.description}] → skipped (future event: ${legDate})`)
+              continue
+            }
             const result = await checkSingleLeg(ANTHROPIC_KEY, leg, bet.date)
             console.log(`  Leg [${leg.selection || leg.description}] → ${result.outcome} (${result.reasoning || ''})`)
             if (result.outcome === 'void') {
