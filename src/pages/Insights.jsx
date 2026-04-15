@@ -12,7 +12,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { calcProfitLoss, formatCurrency, profitLossColor, SPORTS } from '../lib/utils'
 
-const TABS = ['Overview', 'By Sport', 'Multi Bets', 'Risk Profile']
+const TABS = ['Overview', 'By Sport', 'Leg Types', 'Multi Bets', 'Risk Profile']
 
 // One colour per member (up to 10)
 const LINE_COLORS = [
@@ -157,6 +157,33 @@ export default function Insights() {
         .reduce((worst, b) => Math.min(worst, calcProfitLoss(b)), 0)
       return { member: m, avgOdds, avgStake, pctMulti, winRate, bestWin, biggestLoss, empty: false }
     })
+  }, [bets, members])
+
+  // ── Leg type win rates ────────────────────────────────────────────────────
+  const legTypeStats = useMemo(() => {
+    // Collect all resolved legs with their parent bet's user_id
+    const resolvedLegs = bets.flatMap((b) =>
+      (b.bet_legs || [])
+        .filter((l) => l.outcome === 'won' || l.outcome === 'lost')
+        .map((l) => ({ ...l, user_id: b.user_id }))
+    )
+
+    // Get unique market types (descriptions)
+    const marketTypes = [...new Set(resolvedLegs.map((l) => l.description).filter(Boolean))].sort()
+
+    return {
+      marketTypes,
+      byMember: members.map((m) => {
+        const myLegs = resolvedLegs.filter((l) => l.user_id === m.id)
+        const rows = marketTypes.map((mt) => {
+          const legs = myLegs.filter((l) => l.description === mt)
+          if (legs.length === 0) return { mt, w: 0, l: 0, rate: null }
+          const won = legs.filter((l) => l.outcome === 'won').length
+          return { mt, w: won, l: legs.length - won, rate: Math.round((won / legs.length) * 100) }
+        }).filter((r) => r.w + r.l > 0)
+        return { member: m, rows }
+      }),
+    }
   }, [bets, members])
 
   if (loading) {
@@ -304,8 +331,47 @@ export default function Insights() {
             </Section>
           )}
 
-          {/* ── Tab 2: Multi Bets ──────────────────────────────────────────── */}
+          {/* ── Tab 2: Leg Types ───────────────────────────────────────────── */}
           {tab === 2 && (
+            <div className="space-y-4">
+              {legTypeStats.byMember.map(({ member, rows }) => (
+                <div key={member.id} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+                  <p className="text-white font-semibold mb-3">{displayName(member)}</p>
+                  {rows.length === 0 ? (
+                    <p className="text-slate-500 text-sm">No resolved leg data yet.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-slate-400 text-xs uppercase tracking-wide border-b border-slate-700">
+                            <th className="pb-2 pr-4">Market Type</th>
+                            <th className="pb-2 pr-4 text-right">W</th>
+                            <th className="pb-2 pr-4 text-right">L</th>
+                            <th className="pb-2 pr-4 text-right">Total</th>
+                            <th className="pb-2 text-right">Win Rate</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.sort((a, b) => (b.w + b.l) - (a.w + a.l)).map((r) => (
+                            <tr key={r.mt} className="border-b border-slate-700/50">
+                              <td className="py-2 pr-4 text-slate-200">{r.mt}</td>
+                              <td className="py-2 pr-4 text-right text-green-400">{r.w}</td>
+                              <td className="py-2 pr-4 text-right text-red-400">{r.l}</td>
+                              <td className="py-2 pr-4 text-right text-slate-400">{r.w + r.l}</td>
+                              <td className="py-2 text-right">{rateCell(r.rate)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Tab 3: Multi Bets ──────────────────────────────────────────── */}
+          {tab === 3 && (
             <div className="space-y-4">
               {multiStats.map((row) => (
                 <div key={row.member.id} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
@@ -336,8 +402,8 @@ export default function Insights() {
             </div>
           )}
 
-          {/* ── Tab 3: Risk Profile ────────────────────────────────────────── */}
-          {tab === 3 && (
+          {/* ── Tab 4: Risk Profile ────────────────────────────────────────── */}
+          {tab === 4 && (
             <div className="space-y-4">
               {riskProfiles.map((row) => (
                 <div key={row.member.id} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
