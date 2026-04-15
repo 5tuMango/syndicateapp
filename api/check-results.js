@@ -3,7 +3,7 @@
 // GET  /api/check-results  (with cron auth header)  → check all pending bets
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-sonnet-4-20250514'
+const MODEL = 'claude-sonnet-4-6'
 
 // ── API-Sports config per sport ───────────────────────────────────────────────
 // These sports get confirmed scores fetched before Claude is called.
@@ -296,7 +296,7 @@ ${jsonShape}`
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1024,
+        max_tokens: 2048,
         system,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages,
