@@ -454,9 +454,18 @@ ${jsonShape}`
 // ── Parse Claude's JSON response ────────────────────────────────────────────
 function parseClaudeResult(text, isMulti) {
   try {
-    const cleaned = text.replace(/```(?:json)?/gi, '').trim()
-    const match = cleaned.match(/\{[\s\S]*\}/)
-    if (!match) return { outcome: 'pending', confidence: 'low', reasoning: 'Could not parse AI response' }
+    // Strip markdown fences and find the JSON object
+    const cleaned = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim()
+    // Try to find JSON - grab the last { } block in case there's prose before it
+    const matches = [...cleaned.matchAll(/\{[\s\S]*?\}/g)]
+    const match = matches.length ? matches[matches.length - 1] : cleaned.match(/\{[\s\S]*\}/)
+    if (!match) {
+      // Last resort: try to infer outcome from plain text
+      const lower = text.toLowerCase()
+      if (lower.includes('"won"') || lower.includes('outcome: won')) return { outcome: 'won', confidence: 'medium', reasoning: text.substring(0, 200) }
+      if (lower.includes('"lost"') || lower.includes('outcome: lost')) return { outcome: 'lost', confidence: 'medium', reasoning: text.substring(0, 200) }
+      return { outcome: 'pending', confidence: 'low', reasoning: 'Could not parse AI response: ' + text.substring(0, 100) }
+    }
     const parsed = JSON.parse(match[0])
     const valid = ['won', 'lost', 'void', 'pending']
     if (!valid.includes(parsed.outcome)) parsed.outcome = 'pending'
