@@ -163,28 +163,6 @@ export default function AddBet() {
         bet_return_value: d.bet_return_value != null ? String(d.bet_return_value) : prev.bet_return_value,
       }))
 
-      // 4a. Auto-claim bet return if this is a bonus bet
-      // Find the most recent unclaimed bet return for this persona and mark it claimed
-      if (d.is_bonus_bet === true) {
-        const personaId = (profile?.is_admin && selectedPersonaId) ? selectedPersonaId : (persona?.id || null)
-        if (personaId) {
-          const cutoff = new Date()
-          cutoff.setDate(cutoff.getDate() - 21)
-          const { data: matchingBets } = await supabase
-            .from('bets')
-            .select('id')
-            .eq('persona_id', personaId)
-            .eq('outcome', 'lost')
-            .eq('bet_return_claimed', false)
-            .gt('bet_return_value', 0)
-            .gte('date', cutoff.toISOString().slice(0, 10))
-            .order('date', { ascending: false })
-            .limit(1)
-          if (matchingBets?.length > 0) {
-            await supabase.from('bets').update({ bet_return_claimed: true }).eq('id', matchingBets[0].id)
-          }
-        }
-      }
 
       // 4. Pre-fill legs for multi bets
       if (d.bet_type === 'multi' && Array.isArray(d.legs) && d.legs.length > 0) {
@@ -280,6 +258,42 @@ export default function AddBet() {
         .single()
 
       if (betErr) throw betErr
+
+      // Auto-claim a matching bet return if this is a bonus bet
+      if (form.is_bonus_bet) {
+        const targetPersonaId = (profile?.is_admin && selectedPersonaId) ? selectedPersonaId : (persona?.id || null)
+        const targetUserId = targetPersonaId
+          ? personas.find((p) => p.id === targetPersonaId)?.claimed_by || user.id
+          : user.id
+        const cutoff = new Date()
+        cutoff.setDate(cutoff.getDate() - 21)
+        // Search by persona_id first, then fall back to user_id for older bets
+        const { data: byPersona } = await supabase
+          .from('bets')
+          .select('id')
+          .eq('persona_id', targetPersonaId)
+          .eq('outcome', 'lost')
+          .eq('bet_return_claimed', false)
+          .gt('bet_return_value', 0)
+          .gte('date', cutoff.toISOString().slice(0, 10))
+          .order('date', { ascending: false })
+          .limit(1)
+        const { data: byUser } = await supabase
+          .from('bets')
+          .select('id')
+          .eq('user_id', targetUserId)
+          .is('persona_id', null)
+          .eq('outcome', 'lost')
+          .eq('bet_return_claimed', false)
+          .gt('bet_return_value', 0)
+          .gte('date', cutoff.toISOString().slice(0, 10))
+          .order('date', { ascending: false })
+          .limit(1)
+        const claimTarget = byPersona?.[0] || byUser?.[0]
+        if (claimTarget) {
+          await supabase.from('bets').update({ bet_return_claimed: true }).eq('id', claimTarget.id)
+        }
+      }
 
       if (form.bet_type === 'multi') {
         const { error: legsErr } = await supabase.from('bet_legs').insert(
