@@ -217,6 +217,13 @@ export default function WeeklyMulti() {
     load()
   }
 
+  // ── Delete multi ──────────────────────────────────────────────────────────
+  async function handleDeleteMulti(multi) {
+    if (!confirm(`Delete "${multi.week_label}"? This cannot be undone.`)) return
+    await supabase.from('weekly_multis').delete().eq('id', multi.id)
+    load()
+  }
+
   // ── Mark resulted ─────────────────────────────────────────────────────────
   async function markResulted(multi) {
     await supabase
@@ -345,13 +352,23 @@ export default function WeeklyMulti() {
                       </span>
                     )}
                   </div>
-                  {isAdmin && multi.status === 'open' && allResolved && legs.length > 0 && (
-                    <button
-                      onClick={() => markResulted(multi)}
-                      className="text-xs bg-green-500 hover:bg-green-400 text-white font-semibold rounded-lg px-3 py-1.5 transition-colors"
-                    >
-                      Mark Resulted
-                    </button>
+                  {isAdmin && (
+                    <div className="flex items-center gap-2">
+                      {multi.status === 'open' && allResolved && legs.length > 0 && (
+                        <button
+                          onClick={() => markResulted(multi)}
+                          className="text-xs bg-green-500 hover:bg-green-400 text-white font-semibold rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                          Mark Resulted
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteMulti(multi)}
+                        className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   )}
                 </div>
 
