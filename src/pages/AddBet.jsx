@@ -66,6 +66,9 @@ export default function AddBet() {
     outcome: 'pending',
     notes: '',
     event_time: '',
+    is_bonus_bet: false,
+    bet_return_text: '',
+    bet_return_value: '',
   })
 
   const [legs, setLegs] = useState([newLeg(), newLeg()])
@@ -228,6 +231,9 @@ export default function AddBet() {
           notes: form.notes.trim() || null,
           screenshot_url: screenshotUrl || null,
           event_time: form.event_time || null,
+          is_bonus_bet: form.is_bonus_bet || false,
+          bet_return_text: form.bet_return_text.trim() || null,
+          bet_return_value: form.bet_return_value ? parseFloat(form.bet_return_value) : null,
         })
         .select()
         .single()
@@ -471,11 +477,23 @@ export default function AddBet() {
 
           {form.odds && form.stake && parseFloat(form.odds) > 1 && parseFloat(form.stake) > 0 && (
             <div className="text-sm text-slate-400 bg-slate-900/60 rounded-lg px-3 py-2">
-              Potential return:{' '}
-              <span className="text-green-400 font-medium">
-                ${(parseFloat(form.stake) * parseFloat(form.odds)).toFixed(2)}
-              </span>{' '}
-              (profit: ${(parseFloat(form.stake) * (parseFloat(form.odds) - 1)).toFixed(2)})
+              {form.is_bonus_bet ? (
+                <>
+                  Potential profit:{' '}
+                  <span className="text-amber-400 font-medium">
+                    ${(parseFloat(form.stake) * (parseFloat(form.odds) - 1)).toFixed(2)}
+                  </span>{' '}
+                  <span className="text-xs text-slate-500">(bonus bet — stake not returned)</span>
+                </>
+              ) : (
+                <>
+                  Potential return:{' '}
+                  <span className="text-green-400 font-medium">
+                    ${(parseFloat(form.stake) * parseFloat(form.odds)).toFixed(2)}
+                  </span>{' '}
+                  (profit: ${(parseFloat(form.stake) * (parseFloat(form.odds) - 1)).toFixed(2)})
+                </>
+              )}
             </div>
           )}
 
@@ -488,6 +506,43 @@ export default function AddBet() {
               placeholder="Any extra notes"
               className={inp}
             />
+          </div>
+
+          {/* Bonus bet toggle */}
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div
+              onClick={() => set('is_bonus_bet', !form.is_bonus_bet)}
+              className={`w-10 h-6 rounded-full transition-colors relative ${form.is_bonus_bet ? 'bg-amber-500' : 'bg-slate-600'}`}
+            >
+              <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_bonus_bet ? 'translate-x-5' : 'translate-x-1'}`} />
+            </div>
+            <span className="text-sm text-slate-300">
+              Bonus bet <span className="text-slate-500 text-xs">(free bet — no loss if it loses)</span>
+            </span>
+          </label>
+
+          {/* Bet return section */}
+          <div className="space-y-2">
+            <label className={lbl}>Bet Return (optional)</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={form.bet_return_text}
+                onChange={(e) => set('bet_return_text', e.target.value)}
+                placeholder="e.g. Any leg fails → $50 bonus bet"
+                className={`${inp} flex-1`}
+              />
+              <input
+                type="number"
+                value={form.bet_return_value}
+                onChange={(e) => set('bet_return_value', e.target.value)}
+                placeholder="$value"
+                step="0.01"
+                min="0"
+                className={`${inp} w-24`}
+              />
+            </div>
+            <p className="text-xs text-slate-500">Only paid out if this bet loses.</p>
           </div>
         </div>
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { calcProfitLoss, formatCurrency, outcomeBadge, profitLossColor, eventTimeToDate, formatEventTime } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, outcomeBadge, profitLossColor, eventTimeToDate, formatEventTime } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import { usePersonas } from '../hooks/usePersonas'
 
@@ -353,14 +353,28 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
             >
               {bet.bet_type}
             </span>
+            {bet.is_bonus_bet && (
+              <span className="text-xs px-2 py-0.5 rounded border bg-amber-500/20 text-amber-400 border-amber-500/30 font-semibold">
+                BONUS
+              </span>
+            )}
           </div>
           <p className="text-white font-medium leading-snug">{bet.event}</p>
           {bet.notes && <p className="text-slate-400 text-sm mt-0.5">{bet.notes}</p>}
+          {bet.bet_return_text && (
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="text-xs text-emerald-400">🎁 Bet Return:</span>
+              <span className="text-xs text-slate-400">{bet.bet_return_text}</span>
+              {bet.bet_return_value && (
+                <span className="text-xs text-emerald-400 font-semibold">${parseFloat(bet.bet_return_value).toFixed(2)}</span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {bet.outcome === 'won' && (
-            <span className="text-green-400 font-bold text-lg leading-none">
-              +${(parseFloat(bet.stake) * parseFloat(bet.odds)).toFixed(2)}
+            <span className={`font-bold text-lg leading-none ${bet.is_bonus_bet ? 'text-amber-400' : 'text-green-400'}`}>
+              +${calcWinnings(bet).toFixed(2)}
             </span>
           )}
           <span className={`text-xs px-2 py-0.5 rounded border ${outcomeBadge(bet.outcome)}`}>

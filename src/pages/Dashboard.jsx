@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase'
 import BetCard from '../components/BetCard'
 import WeeklyMultiCard from '../components/WeeklyMultiCard'
 import FilterBar from '../components/FilterBar'
-import { calcProfitLoss, formatCurrency, profitLossColor, sortBetsByActivity, betLastEventTime } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor, sortBetsByActivity, betLastEventTime } from '../lib/utils'
+import { usePersonas } from '../hooks/usePersonas'
 
 function calcWeeklyStats(multis) {
   const results = multis.map((m) => {
@@ -42,6 +43,7 @@ function calcWeeklyStats(multis) {
 }
 
 export default function Dashboard() {
+  const personaMap = usePersonas()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
   const [weeklyMultis, setWeeklyMultis] = useState([])
@@ -85,7 +87,7 @@ export default function Dashboard() {
     const won = filteredBets.filter((b) => b.outcome === 'won').length
     const pl = filteredBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
     const staked = filteredBets.filter((b) => b.outcome !== 'void').reduce((sum, b) => sum + parseFloat(b.stake), 0)
-    const winnings = filteredBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
+    const winnings = filteredBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + calcWinnings(b), 0)
     const nonVoid = filteredBets.filter((b) => b.outcome !== 'void')
     const sumStakeOdds = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
     const boldness = nonVoid.length > 0 ? sumStakeOdds / nonVoid.length : 0
@@ -98,6 +100,17 @@ export default function Dashboard() {
   }, [filteredBets])
 
   const weeklyStats = useMemo(() => calcWeeklyStats(weeklyMultis), [weeklyMultis])
+
+  // Bet returns earned but potentially unclaimed (lost bets with a bet_return_value, last 21 days)
+  const availableBetReturns = useMemo(() => {
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 21)
+    return bets.filter((b) =>
+      b.outcome === 'lost' &&
+      b.bet_return_value > 0 &&
+      new Date(b.date) >= cutoff
+    ).sort((a, b) => b.date.localeCompare(a.date))
+  }, [bets])
 
   const combined = useMemo(() => ({
     winnings: individStats.winnings + weeklyStats.winnings,
@@ -207,6 +220,38 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+
+      {/* Available bet returns */}
+      {availableBetReturns.length > 0 && (
+        <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-xl px-4 py-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-emerald-400">🎁 Bet Returns Available</span>
+            <span className="text-xs text-slate-500">Unused by Tuesday? Anyone can use it.</span>
+          </div>
+          <div className="space-y-1.5">
+            {availableBetReturns.map((b) => {
+              const betDate = new Date(b.date + 'T00:00:00')
+              const dayOfWeek = betDate.getDay()
+              const daysToTuesday = (2 - dayOfWeek + 7) % 7 || 7
+              const tuesday = new Date(betDate)
+              tuesday.setDate(betDate.getDate() + daysToTuesday)
+              const isExpired = new Date() > tuesday
+              const persona = personaMap[b.user_id]
+              const name = persona ? `${persona.emoji} ${persona.nickname}` : '?'
+              return (
+                <div key={b.id} className="flex items-center gap-3 text-sm">
+                  <span className="text-slate-300 font-medium">{name}</span>
+                  <span className="text-emerald-400 font-semibold">${parseFloat(b.bet_return_value).toFixed(2)}</span>
+                  {b.bet_return_text && <span className="text-slate-500 text-xs truncate">{b.bet_return_text}</span>}
+                  <span className={`text-xs ml-auto shrink-0 ${isExpired ? 'text-red-400' : 'text-slate-500'}`}>
+                    {isExpired ? '⚠ Tue passed' : `until ${tuesday.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}`}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <FilterBar filters={filters} onChange={setFilters} members={members} />
 

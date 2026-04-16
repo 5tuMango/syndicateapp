@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { calcProfitLoss, formatCurrency, profitLossColor } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor } from '../lib/utils'
 import { usePersonas } from '../hooks/usePersonas'
 
 const RANK_COLORS = ['text-yellow-400', 'text-slate-300', 'text-amber-600']
@@ -59,7 +59,7 @@ export default function Leaderboard() {
 
   async function fetchData() {
     const [betsRes, membersRes, teamsRes, weeklyRes] = await Promise.all([
-      supabase.from('bets').select('user_id, stake, odds, outcome'),
+      supabase.from('bets').select('user_id, stake, odds, outcome, is_bonus_bet, bet_return_value'),
       supabase.from('profiles').select('id, username, full_name, team_id').order('full_name'),
       supabase.from('teams').select('*').order('created_at'),
       supabase.from('weekly_multis').select('*, weekly_multi_legs(*)'),
@@ -79,14 +79,20 @@ export default function Leaderboard() {
     const voided = memberBets.filter((b) => b.outcome === 'void').length
     const pl = memberBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
     const staked = memberBets.filter((b) => b.outcome !== 'void').reduce((sum, b) => sum + parseFloat(b.stake), 0)
-    const winnings = memberBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
+    const winnings = memberBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + calcWinnings(b), 0)
     // Bet Boldness: avg(stake × odds) per bet — rewards both big stakes AND long odds
     // Risk Profile: sum(stake × odds) / total staked = stake-weighted avg odds — pure measure of how risky your selections are
     const nonVoid = memberBets.filter((b) => b.outcome !== 'void')
     const sumStakeOdds = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
     const betBoldness = nonVoid.length > 0 ? sumStakeOdds / nonVoid.length : 0
     const riskProfile = staked > 0 ? sumStakeOdds / staked : 0
-    return { total: memberBets.length, won, lost, pending, voided, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, pl, staked, winnings, betBoldness, riskProfile }
+    // Bet returns earned (only when the bet lost — that's when the return is triggered)
+    const betReturnsEarned = memberBets.filter((b) => b.outcome === 'lost' && b.bet_return_value > 0)
+      .reduce((sum, b) => sum + parseFloat(b.bet_return_value), 0)
+    // Bonus bets used (sum of stakes placed as bonus bets)
+    const bonusBetsUsed = memberBets.filter((b) => b.is_bonus_bet)
+      .reduce((sum, b) => sum + parseFloat(b.stake), 0)
+    return { total: memberBets.length, won, lost, pending, voided, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, pl, staked, winnings, betBoldness, riskProfile, betReturnsEarned, bonusBetsUsed }
   }
 
   const leaderboard = useMemo(() => {

@@ -51,9 +51,18 @@ export function formatEventTime(timeStr) {
   })
 }
 
+// Gross return when a bet wins (what lands in your account)
+export const calcWinnings = (bet) => {
+  if (bet.outcome !== 'won') return 0
+  const stake = parseFloat(bet.stake)
+  const odds = parseFloat(bet.odds)
+  // Bonus bets: stake not returned, so you only receive stake × (odds - 1)
+  return bet.is_bonus_bet ? stake * (odds - 1) : stake * odds
+}
+
 export const calcProfitLoss = (bet) => {
   if (bet.outcome === 'won') return parseFloat(bet.stake) * (parseFloat(bet.odds) - 1)
-  if (bet.outcome === 'lost') return -parseFloat(bet.stake)
+  if (bet.outcome === 'lost') return bet.is_bonus_bet ? 0 : -parseFloat(bet.stake)
   // void and pending both return 0 — stake is returned on void, not yet known on pending
   return 0
 }
