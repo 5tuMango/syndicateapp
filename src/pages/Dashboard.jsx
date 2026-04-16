@@ -43,7 +43,7 @@ function calcWeeklyStats(multis) {
 }
 
 export default function Dashboard() {
-  const { byUserId: personaMap } = usePersonas()
+  const { byUserId: personaMap, byPersonaId } = usePersonas()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
   const [weeklyMultis, setWeeklyMultis] = useState([])
@@ -101,16 +101,22 @@ export default function Dashboard() {
 
   const weeklyStats = useMemo(() => calcWeeklyStats(weeklyMultis), [weeklyMultis])
 
-  // Bet returns earned but potentially unclaimed (lost bets with a bet_return_value, last 21 days)
+  // Bet returns earned but not yet claimed (lost bets with a bet_return_value, last 21 days, not marked used)
   const availableBetReturns = useMemo(() => {
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - 21)
     return bets.filter((b) =>
       b.outcome === 'lost' &&
       b.bet_return_value > 0 &&
+      !b.bet_return_claimed &&
       new Date(b.date) >= cutoff
     ).sort((a, b) => b.date.localeCompare(a.date))
   }, [bets])
+
+  async function markBetReturnUsed(betId) {
+    await supabase.from('bets').update({ bet_return_claimed: true }).eq('id', betId)
+    setBets((prev) => prev.map((b) => b.id === betId ? { ...b, bet_return_claimed: true } : b))
+  }
 
   const combined = useMemo(() => ({
     winnings: individStats.winnings + weeklyStats.winnings,
@@ -236,16 +242,22 @@ export default function Dashboard() {
               const tuesday = new Date(betDate)
               tuesday.setDate(betDate.getDate() + daysToTuesday)
               const isExpired = new Date() > tuesday
-              const persona = personaMap[b.user_id]
+              const persona = (b.persona_id && byPersonaId[b.persona_id]) || personaMap[b.user_id]
               const name = persona ? `${persona.emoji} ${persona.nickname}` : '?'
               return (
-                <div key={b.id} className="flex items-center gap-3 text-sm">
+                <div key={b.id} className="flex items-center gap-3 text-sm flex-wrap">
                   <span className="text-slate-300 font-medium">{name}</span>
                   <span className="text-emerald-400 font-semibold">${parseFloat(b.bet_return_value).toFixed(2)}</span>
-                  {b.bet_return_text && <span className="text-slate-500 text-xs truncate">{b.bet_return_text}</span>}
-                  <span className={`text-xs ml-auto shrink-0 ${isExpired ? 'text-red-400' : 'text-slate-500'}`}>
+                  {b.bet_return_text && <span className="text-slate-500 text-xs truncate flex-1">{b.bet_return_text}</span>}
+                  <span className={`text-xs shrink-0 ${isExpired ? 'text-red-400' : 'text-slate-500'}`}>
                     {isExpired ? '⚠ Tue passed' : `until ${tuesday.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}`}
                   </span>
+                  <button
+                    onClick={() => markBetReturnUsed(b.id)}
+                    className="text-xs px-2 py-0.5 rounded border border-slate-600 text-slate-400 hover:text-white hover:border-slate-400 transition-colors shrink-0"
+                  >
+                    Mark used
+                  </button>
                 </div>
               )
             })}
