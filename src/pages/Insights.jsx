@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import {
   LineChart,
   Line,
@@ -245,16 +246,28 @@ export default function Insights() {
   }, [bets, members])
 
   // ── Weekly multi insights ─────────────────────────────────────────────────
-  const weeklyInsights = useMemo(() => {
-    // Weeks in chronological order
-    const weeks = [...weeklyMultis].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  const TOTAL_WEEKS = 33
 
-    // For each member, find their leg in each week
+  const weeklyInsights = useMemo(() => {
+    // Build a lookup: week number → multi object (parse "Week N" from label)
+    const multiByWeek = {}
+    for (const m of weeklyMultis) {
+      const match = m.week_label?.match(/Week\s+(\d+)/i)
+      if (match) multiByWeek[parseInt(match[1])] = m
+    }
+
+    // Fixed 33-week slots
+    const slots = Array.from({ length: TOTAL_WEEKS }, (_, i) => ({
+      weekNum: i + 1,
+      multi: multiByWeek[i + 1] || null,
+    }))
+
+    // For each member, result per slot
     const memberStats = members.map((m) => {
-      const weekResults = weeks.map((multi) => {
-        const legs = multi.weekly_multi_legs || []
-        const leg = legs.find((l) => l.assigned_user_id === m.id)
-        if (!leg) return null // not in this week
+      const weekResults = slots.map(({ multi }) => {
+        if (!multi) return null
+        const leg = (multi.weekly_multi_legs || []).find((l) => l.assigned_user_id === m.id)
+        if (!leg) return null
         return { outcome: leg.outcome, odds: leg.odds ? parseFloat(leg.odds) : null }
       })
 
@@ -269,7 +282,7 @@ export default function Insights() {
       return { member: m, weekResults, avgOdds, winPct, won, lost: resolvedLegs.length - won, total: resolvedLegs.length }
     })
 
-    return { weeks, memberStats }
+    return { slots, memberStats }
   }, [weeklyMultis, members])
 
   if (loading) {
@@ -578,87 +591,89 @@ export default function Insights() {
           {/* ── Tab 5: Weekly ─────────────────────────────────────────────── */}
           {tab === 5 && (
             <div className="space-y-4">
-              {weeklyInsights.weeks.length === 0 ? (
-                <div className="text-center text-slate-400 py-16">No weekly multis yet.</div>
-              ) : (
-                <>
-                  {/* Results grid */}
-                  <Section title="Week by Week Results">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left border-b border-slate-700">
-                            <th className="pb-2 pr-4 text-slate-400 text-xs uppercase tracking-wide font-medium whitespace-nowrap">Member</th>
-                            {weeklyInsights.weeks.map((w) => (
-                              <th key={w.id} className="pb-2 px-2 text-center text-slate-400 text-xs uppercase tracking-wide font-medium whitespace-nowrap">
-                                {w.week_label}
-                              </th>
-                            ))}
-                            <th className="pb-2 pl-4 text-right text-slate-400 text-xs uppercase tracking-wide font-medium whitespace-nowrap">Avg Odds</th>
-                            <th className="pb-2 pl-3 text-right text-slate-400 text-xs uppercase tracking-wide font-medium whitespace-nowrap">Win %</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {weeklyInsights.memberStats.map(({ member, weekResults, avgOdds, winPct, won, lost }) => (
-                            <tr key={member.id} className="border-b border-slate-700/50">
-                              <td className="py-2.5 pr-4 text-white font-medium whitespace-nowrap">{displayName(member)}</td>
-                              {weekResults.map((r, i) => (
-                                <td key={i} className="py-2.5 px-2 text-center">
-                                  {r === null ? (
-                                    <span className="text-slate-700">—</span>
-                                  ) : r.outcome === 'won' ? (
-                                    <span className="text-green-400 font-bold text-base">✓</span>
-                                  ) : r.outcome === 'lost' ? (
-                                    <span className="text-red-400 font-bold text-base">✗</span>
-                                  ) : r.outcome === 'void' ? (
-                                    <span className="text-slate-500 text-xs">void</span>
-                                  ) : (
-                                    <span className="text-yellow-400 text-xs">·</span>
-                                  )}
-                                </td>
-                              ))}
-                              <td className="py-2.5 pl-4 text-right text-slate-200 font-medium whitespace-nowrap">
-                                {avgOdds != null ? avgOdds.toFixed(2) : <span className="text-slate-600">—</span>}
-                              </td>
-                              <td className="py-2.5 pl-3 text-right whitespace-nowrap">
-                                {winPct !== null ? (
-                                  <span className={`font-semibold ${rateColor(winPct)}`}>{winPct}%</span>
+              <>
+                {/* Results grid */}
+                <Section title="Season Results — Week by Week">
+                  <div className="overflow-x-auto">
+                    <table className="text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-700">
+                          <th className="pb-2 pr-3 text-left text-slate-400 text-xs font-medium sticky left-0 bg-slate-800 z-10 whitespace-nowrap">Member</th>
+                          {weeklyInsights.slots.map(({ weekNum, multi }) => (
+                            <th key={weekNum} className="pb-2 px-1 text-center text-xs font-medium whitespace-nowrap w-7">
+                              {multi ? (
+                                <Link to="/weekly-multi" className="text-purple-400 hover:text-purple-300 transition-colors">
+                                  {weekNum}
+                                </Link>
+                              ) : (
+                                <span className="text-slate-700">{weekNum}</span>
+                              )}
+                            </th>
+                          ))}
+                          <th className="pb-2 pl-4 text-right text-slate-400 text-xs font-medium whitespace-nowrap">Avg Odds</th>
+                          <th className="pb-2 pl-3 text-right text-slate-400 text-xs font-medium whitespace-nowrap">Win %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {weeklyInsights.memberStats.map(({ member, weekResults, avgOdds, winPct, won, lost }) => (
+                          <tr key={member.id} className="border-b border-slate-700/50">
+                            <td className="py-2 pr-3 text-white font-medium whitespace-nowrap sticky left-0 bg-slate-800 z-10">{displayName(member)}</td>
+                            {weekResults.map((r, i) => (
+                              <td key={i} className="py-2 px-1 text-center w-7">
+                                {r === null ? (
+                                  <span className="text-slate-800">·</span>
+                                ) : r.outcome === 'won' ? (
+                                  <span className="text-green-400 font-bold">✓</span>
+                                ) : r.outcome === 'lost' ? (
+                                  <span className="text-red-400 font-bold">✗</span>
+                                ) : r.outcome === 'void' ? (
+                                  <span className="text-slate-600 text-xs">V</span>
                                 ) : (
-                                  <span className="text-slate-600">—</span>
+                                  <span className="text-yellow-500 text-xs">?</span>
                                 )}
                               </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className="text-slate-600 text-xs mt-1">✓ = won · ✗ = lost · · = pending · — = not in this week</p>
-                  </Section>
-
-                  {/* Per-member summary cards */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {weeklyInsights.memberStats
-                      .filter((s) => s.total > 0)
-                      .sort((a, b) => (b.winPct ?? -1) - (a.winPct ?? -1))
-                      .map(({ member, avgOdds, winPct, won, lost, total }) => (
-                        <div key={member.id} className="bg-slate-800 rounded-lg border border-slate-700 p-3 space-y-2">
-                          <p className="text-white font-semibold text-sm">{displayName(member)}</p>
-                          <div className="flex gap-3 text-xs">
-                            <span className="text-green-400">{won}W</span>
-                            <span className="text-red-400">{lost}L</span>
-                            <span className="text-slate-500">{total} played</span>
-                          </div>
-                          <div className="flex gap-3 text-xs">
-                            <span className="text-slate-400">Avg odds <span className="text-white font-medium">{avgOdds != null ? avgOdds.toFixed(2) : '—'}</span></span>
-                            <span className={`font-semibold ${winPct !== null ? rateColor(winPct) : 'text-slate-600'}`}>
-                              {winPct !== null ? `${winPct}%` : '—'}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                            ))}
+                            <td className="py-2 pl-4 text-right text-slate-200 font-medium whitespace-nowrap">
+                              {avgOdds != null ? avgOdds.toFixed(2) : <span className="text-slate-700">—</span>}
+                            </td>
+                            <td className="py-2 pl-3 text-right whitespace-nowrap">
+                              {winPct !== null ? (
+                                <span className={`font-semibold ${rateColor(winPct)}`}>{winPct}%</span>
+                              ) : (
+                                <span className="text-slate-700">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                </>
-              )}
+                  <p className="text-slate-600 text-xs mt-2">✓ won · ✗ lost · ? pending · Week numbers link to Weekly Multi page</p>
+                </Section>
+
+                {/* Per-member summary cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {weeklyInsights.memberStats
+                    .filter((s) => s.total > 0)
+                    .sort((a, b) => (b.winPct ?? -1) - (a.winPct ?? -1))
+                    .map(({ member, avgOdds, winPct, won, lost, total }) => (
+                      <div key={member.id} className="bg-slate-800 rounded-lg border border-slate-700 p-3 space-y-2">
+                        <p className="text-white font-semibold text-sm">{displayName(member)}</p>
+                        <div className="flex gap-3 text-xs">
+                          <span className="text-green-400">{won}W</span>
+                          <span className="text-red-400">{lost}L</span>
+                          <span className="text-slate-500">{total} played</span>
+                        </div>
+                        <div className="flex gap-3 text-xs">
+                          <span className="text-slate-400">Avg odds <span className="text-white font-medium">{avgOdds != null ? avgOdds.toFixed(2) : '—'}</span></span>
+                          <span className={`font-semibold ${winPct !== null ? rateColor(winPct) : 'text-slate-600'}`}>
+                            {winPct !== null ? `${winPct}%` : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </>
             </div>
           )}
         </>
