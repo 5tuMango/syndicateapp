@@ -258,34 +258,41 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
   }
 
   const handleResultScreenshot = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
     setUploadingResult(true)
     setCheckMsg(null)
     try {
-      const reader = new FileReader()
-      const base64 = await new Promise((resolve, reject) => {
-        reader.onload = () => resolve(reader.result.split(',')[1])
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
+      // Convert all selected images to base64 in parallel
+      const images = await Promise.all(
+        files.map(
+          (file) =>
+            new Promise((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve({ imageBase64: reader.result.split(',')[1], mimeType: file.type })
+              reader.onerror = reject
+              reader.readAsDataURL(file)
+            })
+        )
+      )
       const res = await fetch('/api/extract-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mimeType: file.type, betId: bet.id }),
+        body: JSON.stringify({ images, betId: bet.id }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Server error')
+      const screenshotLabel = files.length > 1 ? ` (${files.length} screenshots)` : ''
       setCheckMsg({
         type: 'ok',
-        text: `Updated ${data.updatedLegs} leg${data.updatedLegs !== 1 ? 's' : ''} — ${data.parentOutcome.toUpperCase()}. Refreshing…`,
+        text: `Updated ${data.updatedLegs} leg${data.updatedLegs !== 1 ? 's' : ''}${screenshotLabel} — ${data.parentOutcome.toUpperCase()}. Refreshing…`,
       })
       onUpdate?.(bet.id)
     } catch (err) {
       setCheckMsg({ type: 'warn', text: `Error: ${err.message}` })
     } finally {
       setUploadingResult(false)
-      // Reset the file input so the same file can be re-uploaded if needed
+      // Reset the file input so the same files can be re-uploaded if needed
       e.target.value = ''
     }
   }
@@ -383,6 +390,7 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
                 <input
                   type="file"
                   accept="image/*"
+                  multiple
                   className="hidden"
                   disabled={uploadingResult || checking}
                   onChange={handleResultScreenshot}

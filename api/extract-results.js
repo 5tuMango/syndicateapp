@@ -1,6 +1,7 @@
 // POST /api/extract-results
-// Body: { imageBase64, mimeType, betId }
-// Reads a Sportsbet results screenshot and updates leg outcomes in Supabase
+// Body: { images: [{ imageBase64, mimeType }], betId }
+//   OR legacy: { imageBase64, mimeType, betId }
+// Reads one or more Sportsbet results screenshots and updates leg outcomes in Supabase
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -12,9 +13,15 @@ export default async function handler(req, res) {
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' })
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' })
 
-  const { imageBase64, mimeType, betId } = req.body
-  if (!imageBase64 || !mimeType || !betId) {
-    return res.status(400).json({ error: 'Missing imageBase64, mimeType, or betId' })
+  const { imageBase64, mimeType, images, betId } = req.body
+
+  // Normalise to array — support both legacy single-image and new multi-image format
+  const imageList = images && images.length > 0
+    ? images
+    : imageBase64 ? [{ imageBase64, mimeType }] : []
+
+  if (imageList.length === 0 || !betId) {
+    return res.status(400).json({ error: 'Missing images or betId' })
   }
 
   // Fetch bet + legs from Supabase
@@ -44,21 +51,29 @@ export default async function handler(req, res) {
     return desc
   }).join('\n')
 
-  const prompt = `You are reading a Sportsbet results screenshot for the following bet:
+  const multipleScreenshots = imageList.length > 1
+
+  const prompt = `You are reading ${multipleScreenshots ? `${imageList.length} screenshots` : 'a screenshot'} from the Sportsbet app showing results for the following bet:
 
 Event: ${bet.event}
 Type: ${bet.bet_type}
 Legs in our system:
 ${legList}
 
-From the screenshot, identify the outcome of each leg (won, lost, void, or pending if not yet resolved).
+${multipleScreenshots ? `IMPORTANT — MULTIPLE SCREENSHOTS:
+These screenshots are all from the SAME bet. They may be scrolled views of the same screen, meaning some legs will appear in multiple screenshots. Treat them as one continuous view — do NOT duplicate a leg's result just because it appears in more than one image.
+If a screenshot appears to be a continuation (e.g. it starts mid-bet without a bet header), assume it belongs to this same bet.
+Combine all visible information across all screenshots before returning your answer.
+
+` : ''}From the screenshot${multipleScreenshots ? 's' : ''}, identify the outcome of each leg (won, lost, void, or pending if not yet resolved).
 
 IMPORTANT rules:
 - Match each leg by its selection/player name/event name visible in the screenshot
 - For SGM groups: if ALL legs in the group are resolved (won/lost), derive the SGM outcome — won only if ALL legs won, lost if ANY leg lost
-- If a leg is not visible in the screenshot, leave it as its current outcome
+- If a leg is not visible in any screenshot, leave it as its current outcome
 - "Pending" in Sportsbet UI does NOT mean unresolved — check individual leg tick/cross icons instead
 - A green tick = won, red cross = lost
+- De-duplicate: if the same leg appears across multiple screenshots, only report it once using the clearest result
 
 Return ONLY a valid JSON array of leg updates:
 [
@@ -66,7 +81,16 @@ Return ONLY a valid JSON array of leg updates:
   ...
 ]
 
-Only include legs where you can clearly read the result from the screenshot. leg_index matches the order above (0-based).`
+Only include legs where you can clearly read the result from at least one screenshot. leg_index matches the order above (0-based).`
+
+  // Build content array: all images first, then the prompt text
+  const content = [
+    ...imageList.map((img) => ({
+      type: 'image',
+      source: { type: 'base64', media_type: img.mimeType, data: img.imageBase64 },
+    })),
+    { type: 'text', text: prompt },
+  ]
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -79,18 +103,7 @@ Only include legs where you can clearly read the result from the screenshot. leg
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 1024,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: mimeType, data: imageBase64 },
-              },
-              { type: 'text', text: prompt },
-            ],
-          },
-        ],
+        messages: [{ role: 'user', content }],
       }),
     })
 
@@ -158,6 +171,7 @@ Only include legs where you can clearly read the result from the screenshot. leg
       updatedLegs: updatedCount,
       parentOutcome,
       legUpdates,
+      screenshotsProcessed: imageList.length,
     })
   } catch (err) {
     return res.status(500).json({ error: err.message })
