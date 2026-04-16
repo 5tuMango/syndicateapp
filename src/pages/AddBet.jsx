@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -41,12 +41,14 @@ const fileToBase64 = (file) =>
   })
 
 export default function AddBet() {
-  const { user } = useAuth()
+  const { user, profile, persona } = useAuth()
   const navigate = useNavigate()
   const fileInputRef = useRef(null)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [personas, setPersonas] = useState([])
+  const [selectedPersonaId, setSelectedPersonaId] = useState('')
 
   // Screenshot state
   const [screenshotUrl, setScreenshotUrl] = useState(null)
@@ -70,6 +72,16 @@ export default function AddBet() {
 
   const set = (key, val) => setForm((p) => ({ ...p, [key]: val }))
   const addLeg = () => setLegs((p) => [...p, newLeg()])
+
+  // Load personas for admin member selector
+  useEffect(() => {
+    if (!profile?.is_admin) return
+    supabase.from('personas').select('*').order('nickname').then(({ data }) => {
+      setPersonas(data || [])
+      // Default to own persona
+      if (persona) setSelectedPersonaId(persona.id)
+    })
+  }, [profile, persona])
   const removeLeg = (i) => setLegs((p) => p.filter((_, idx) => idx !== i))
   const setLeg = (i, key, val) =>
     setLegs((p) => p.map((leg, idx) => (idx === i ? { ...leg, [key]: val } : leg)))
@@ -197,10 +209,15 @@ export default function AddBet() {
 
     setSaving(true)
     try {
+      const betPersonaId = profile?.is_admin
+        ? (selectedPersonaId || persona?.id || null)
+        : (persona?.id || null)
+
       const { data: bet, error: betErr } = await supabase
         .from('bets')
         .insert({
           user_id: user.id,
+          persona_id: betPersonaId,
           date: form.date,
           sport: form.sport,
           event: form.event.trim(),
@@ -319,6 +336,25 @@ export default function AddBet() {
             </div>
           )}
         </div>
+
+        {/* ── Member selector (admin only) ── */}
+        {profile?.is_admin && personas.length > 0 && (
+          <div className="bg-slate-800 rounded-xl border border-purple-700/40 p-4">
+            <label className={lbl}>Betting for</label>
+            <select
+              value={selectedPersonaId}
+              onChange={(e) => setSelectedPersonaId(e.target.value)}
+              className={inp}
+            >
+              <option value="">— select member —</option>
+              {personas.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.emoji} {p.nickname}{!p.claimed_by ? ' (unclaimed)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* ── Bet Details ── */}
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-5 space-y-4">

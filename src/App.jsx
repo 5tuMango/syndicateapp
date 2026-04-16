@@ -12,6 +12,7 @@ import Insights from './pages/Insights'
 import Teams from './pages/Teams'
 import WeeklyMulti from './pages/WeeklyMulti'
 import AdminPersonas from './pages/AdminPersonas'
+import AdminAssignBets from './pages/AdminAssignBets'
 import ClaimPersona from './pages/ClaimPersona'
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/teams" element={<Teams />} />
         <Route path="/weekly-multi" element={<WeeklyMulti />} />
         <Route path="/admin/personas" element={<AdminPersonas />} />
+        <Route path="/admin/assign-bets" element={<AdminAssignBets />} />
       </Route>
       {/* Claim screen: needs auth but not the main Layout */}
       <Route
