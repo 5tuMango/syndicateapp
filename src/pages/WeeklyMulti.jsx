@@ -238,8 +238,12 @@ export default function WeeklyMulti() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images, multiId }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Server error')
+      // Use .text() first so we get a useful error even if the body isn't valid JSON
+      const text = await res.text()
+      if (!text) throw new Error(`Server returned empty response (status ${res.status})`)
+      let data
+      try { data = JSON.parse(text) } catch { throw new Error(`Server error (status ${res.status}): ${text.slice(0, 200)}`) }
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`)
       setSlipPreview({ multiId, matches: data.matches })
     } catch (err) {
       alert('Error reading bet slip: ' + err.message)

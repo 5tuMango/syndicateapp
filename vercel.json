@@ -9,6 +9,9 @@
   "functions": {
     "api/check-results.js": {
       "maxDuration": 60
+    },
+    "api/match-weekly-multi.js": {
+      "maxDuration": 60
     }
   }
 }

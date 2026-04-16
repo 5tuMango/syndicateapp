@@ -23,12 +23,22 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing images or multiId' })
   }
 
-  // Fetch legs for this multi
+  // Fetch legs for this multi (omit raw_pick if it doesn't exist yet — graceful fallback)
   const legsRes = await fetch(
     `${SUPABASE_URL}/rest/v1/weekly_multi_legs?weekly_multi_id=eq.${multiId}&select=id,assigned_user_id,assigned_name,raw_pick,sort_order&order=sort_order.asc`,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
   )
-  const legs = await legsRes.json()
+  let legs = await legsRes.json()
+
+  // If raw_pick column doesn't exist yet, retry without it
+  if (!Array.isArray(legs)) {
+    const retry = await fetch(
+      `${SUPABASE_URL}/rest/v1/weekly_multi_legs?weekly_multi_id=eq.${multiId}&select=id,assigned_user_id,assigned_name,sort_order&order=sort_order.asc`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    )
+    legs = await retry.json()
+  }
+
   if (!Array.isArray(legs) || legs.length === 0) {
     return res.status(404).json({ error: 'No legs found for this multi' })
   }
