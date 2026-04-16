@@ -194,6 +194,7 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
   const [deleting, setDeleting] = useState(false)
   const [checking, setChecking] = useState(false)
   const [checkMsg, setCheckMsg] = useState(null) // { type: 'ok'|'info'|'warn', text }
+  const [uploadingResult, setUploadingResult] = useState(false)
 
   const isOwner = user?.id === bet.user_id
   const pl = calcProfitLoss(bet)
@@ -253,6 +254,39 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
       setCheckMsg({ type: 'warn', text: `Error: ${err.message}` })
     } finally {
       setChecking(false)
+    }
+  }
+
+  const handleResultScreenshot = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingResult(true)
+    setCheckMsg(null)
+    try {
+      const reader = new FileReader()
+      const base64 = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result.split(',')[1])
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      const res = await fetch('/api/extract-results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: file.type, betId: bet.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Server error')
+      setCheckMsg({
+        type: 'ok',
+        text: `Updated ${data.updatedLegs} leg${data.updatedLegs !== 1 ? 's' : ''} — ${data.parentOutcome.toUpperCase()}. Refreshing…`,
+      })
+      onUpdate?.(bet.id)
+    } catch (err) {
+      setCheckMsg({ type: 'warn', text: `Error: ${err.message}` })
+    } finally {
+      setUploadingResult(false)
+      // Reset the file input so the same file can be re-uploaded if needed
+      e.target.value = ''
     }
   }
 
@@ -336,13 +370,25 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
 
           {/* Check Result — shown for pending bets OR bets with pending legs */}
           {(bet.outcome === 'pending' || legs.some((l) => l.outcome === 'pending')) && (
-            <button
-              onClick={handleCheckResult}
-              disabled={checking}
-              className="text-xs text-yellow-400 hover:text-yellow-300 disabled:opacity-50 transition-colors"
-            >
-              {checking ? 'Checking…' : '🔍 Check'}
-            </button>
+            <>
+              <button
+                onClick={handleCheckResult}
+                disabled={checking || uploadingResult}
+                className="text-xs text-yellow-400 hover:text-yellow-300 disabled:opacity-50 transition-colors"
+              >
+                {checking ? 'Checking…' : '🔍 Check'}
+              </button>
+              <label className={`text-xs cursor-pointer transition-colors ${uploadingResult ? 'text-slate-500' : 'text-slate-400 hover:text-blue-400'}`}>
+                {uploadingResult ? 'Reading…' : '📷 Results'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploadingResult || checking}
+                  onChange={handleResultScreenshot}
+                />
+              </label>
+            </>
           )}
 
           {isOwner && (

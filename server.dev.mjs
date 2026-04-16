@@ -70,6 +70,10 @@ createServer(async (req, res) => {
       console.log(`→ ${req.method} /api/check-results`)
       const mod = await import(`./api/check-results.js?t=${Date.now()}`)
       await runHandler(mod, req, res, body)
+    } else if (req.url === '/api/extract-results' && req.method === 'POST') {
+      console.log('→ POST /api/extract-results')
+      const mod = await import(`./api/extract-results.js?t=${Date.now()}`)
+      await runHandler(mod, req, res, body)
     } else {
       res.writeHead(404)
       res.end('Not found')
@@ -83,4 +87,5 @@ createServer(async (req, res) => {
   console.log('   Handling: POST /api/extract-bet')
   console.log('   Handling: POST /api/check-results  (single bet)')
   console.log('   Handling: GET  /api/check-results  (all pending — requires CRON_SECRET)')
+  console.log('   Handling: POST /api/extract-results (screenshot → leg outcomes)')
 })
