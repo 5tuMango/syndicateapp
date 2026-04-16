@@ -591,37 +591,61 @@ export default function Insights() {
           {/* ── Tab 5: Weekly ─────────────────────────────────────────────── */}
           {tab === 5 && (
             <div className="space-y-4">
-              <>
-                {/* Results grid */}
-                <Section title="Season Results — Week by Week">
-                  <div className="overflow-x-auto">
-                    <table className="text-sm border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-700">
-                          <th className="pb-2 pr-3 text-left text-slate-400 text-xs font-medium sticky left-0 bg-slate-800 z-10 whitespace-nowrap">Member</th>
-                          {weeklyInsights.slots.map(({ weekNum, multi }) => (
-                            <th key={weekNum} className="pb-2 px-1 text-center text-xs font-medium whitespace-nowrap w-7">
-                              {multi ? (
-                                <Link to="/weekly-multi" className="text-purple-400 hover:text-purple-300 transition-colors">
-                                  {weekNum}
-                                </Link>
-                              ) : (
-                                <span className="text-slate-700">{weekNum}</span>
-                              )}
-                            </th>
-                          ))}
-                          <th className="pb-2 pl-4 text-right text-slate-400 text-xs font-medium whitespace-nowrap">Avg Odds</th>
-                          <th className="pb-2 pl-3 text-right text-slate-400 text-xs font-medium whitespace-nowrap">Win %</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {weeklyInsights.memberStats.map(({ member, weekResults, avgOdds, winPct, won, lost }) => (
-                          <tr key={member.id} className="border-b border-slate-700/50">
-                            <td className="py-2 pr-3 text-white font-medium whitespace-nowrap sticky left-0 bg-slate-800 z-10">{displayName(member)}</td>
-                            {weekResults.map((r, i) => (
-                              <td key={i} className="py-2 px-1 text-center w-7">
+              <Section title="Season Results — Week by Week">
+                {/* Transposed table: members across top, weeks down left */}
+                <div className="overflow-x-auto">
+                  <table className="text-sm border-collapse w-full">
+                    <thead>
+                      {/* Row 1: Member names */}
+                      <tr className="border-b border-slate-700">
+                        <th className="py-2 pr-3 text-left text-slate-500 text-xs font-medium sticky left-0 bg-slate-800 z-10 whitespace-nowrap w-14">Week</th>
+                        {weeklyInsights.memberStats.map(({ member }) => (
+                          <th key={member.id} className="py-2 px-2 text-center text-white text-xs font-semibold whitespace-nowrap">
+                            {displayName(member)}
+                          </th>
+                        ))}
+                      </tr>
+                      {/* Row 2: Avg Odds */}
+                      <tr className="border-b border-slate-700/40">
+                        <td className="py-1.5 pr-3 text-slate-500 text-xs sticky left-0 bg-slate-800 z-10 whitespace-nowrap">Avg Odds</td>
+                        {weeklyInsights.memberStats.map(({ member, avgOdds }) => (
+                          <td key={member.id} className="py-1.5 px-2 text-center text-slate-200 text-xs font-medium">
+                            {avgOdds != null ? avgOdds.toFixed(2) : <span className="text-slate-700">—</span>}
+                          </td>
+                        ))}
+                      </tr>
+                      {/* Row 3: Win % */}
+                      <tr className="border-b border-slate-600">
+                        <td className="py-1.5 pr-3 text-slate-500 text-xs sticky left-0 bg-slate-800 z-10 whitespace-nowrap">Win %</td>
+                        {weeklyInsights.memberStats.map(({ member, winPct }) => (
+                          <td key={member.id} className="py-1.5 px-2 text-center text-xs font-semibold">
+                            {winPct !== null
+                              ? <span className={rateColor(winPct)}>{winPct}%</span>
+                              : <span className="text-slate-700">—</span>}
+                          </td>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {weeklyInsights.slots.map(({ weekNum, multi }) => (
+                        <tr key={weekNum} className="border-b border-slate-700/30">
+                          {/* Week number — link if multi exists */}
+                          <td className="py-2 pr-3 sticky left-0 bg-slate-800 z-10 whitespace-nowrap">
+                            {multi ? (
+                              <Link to="/weekly-multi" className="text-purple-400 hover:text-purple-300 text-xs font-semibold transition-colors">
+                                W{weekNum}
+                              </Link>
+                            ) : (
+                              <span className="text-slate-700 text-xs">W{weekNum}</span>
+                            )}
+                          </td>
+                          {/* Each member's result for this week */}
+                          {weeklyInsights.memberStats.map(({ member, weekResults }) => {
+                            const r = weekResults[weekNum - 1]
+                            return (
+                              <td key={member.id} className="py-2 px-2 text-center">
                                 {r === null ? (
-                                  <span className="text-slate-800">·</span>
+                                  <span className="text-slate-800 text-xs">·</span>
                                 ) : r.outcome === 'won' ? (
                                   <span className="text-green-400 font-bold">✓</span>
                                 ) : r.outcome === 'lost' ? (
@@ -632,48 +656,15 @@ export default function Insights() {
                                   <span className="text-yellow-500 text-xs">?</span>
                                 )}
                               </td>
-                            ))}
-                            <td className="py-2 pl-4 text-right text-slate-200 font-medium whitespace-nowrap">
-                              {avgOdds != null ? avgOdds.toFixed(2) : <span className="text-slate-700">—</span>}
-                            </td>
-                            <td className="py-2 pl-3 text-right whitespace-nowrap">
-                              {winPct !== null ? (
-                                <span className={`font-semibold ${rateColor(winPct)}`}>{winPct}%</span>
-                              ) : (
-                                <span className="text-slate-700">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-slate-600 text-xs mt-2">✓ won · ✗ lost · ? pending · Week numbers link to Weekly Multi page</p>
-                </Section>
-
-                {/* Per-member summary cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {weeklyInsights.memberStats
-                    .filter((s) => s.total > 0)
-                    .sort((a, b) => (b.winPct ?? -1) - (a.winPct ?? -1))
-                    .map(({ member, avgOdds, winPct, won, lost, total }) => (
-                      <div key={member.id} className="bg-slate-800 rounded-lg border border-slate-700 p-3 space-y-2">
-                        <p className="text-white font-semibold text-sm">{displayName(member)}</p>
-                        <div className="flex gap-3 text-xs">
-                          <span className="text-green-400">{won}W</span>
-                          <span className="text-red-400">{lost}L</span>
-                          <span className="text-slate-500">{total} played</span>
-                        </div>
-                        <div className="flex gap-3 text-xs">
-                          <span className="text-slate-400">Avg odds <span className="text-white font-medium">{avgOdds != null ? avgOdds.toFixed(2) : '—'}</span></span>
-                          <span className={`font-semibold ${winPct !== null ? rateColor(winPct) : 'text-slate-600'}`}>
-                            {winPct !== null ? `${winPct}%` : '—'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </>
+                <p className="text-slate-600 text-xs mt-2">✓ won · ✗ lost · ? pending · W# links to Weekly Multi page</p>
+              </Section>
             </div>
           )}
         </>
