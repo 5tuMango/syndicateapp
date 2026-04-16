@@ -50,7 +50,7 @@ export default function AddBet() {
 
   // Screenshot state
   const [screenshotUrl, setScreenshotUrl] = useState(null)
-  const [screenshotPreview, setScreenshotPreview] = useState(null)
+  const [screenshotPreviews, setScreenshotPreviews] = useState([]) // array of object URLs
   const [extracting, setExtracting] = useState(false)
   const [extractMsg, setExtractMsg] = useState(null) // { type: 'success'|'error', text }
 
@@ -76,16 +76,17 @@ export default function AddBet() {
 
   // ── Screenshot handler ────────────────────────────────────
   const handleScreenshotSelect = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
 
-    // Show local preview immediately
-    setScreenshotPreview(URL.createObjectURL(file))
+    // Show local previews immediately
+    setScreenshotPreviews(files.map((f) => URL.createObjectURL(f)))
     setExtracting(true)
     setExtractMsg(null)
 
     try {
-      // 1. Upload to Supabase Storage
+      // 1. Upload first file to Supabase Storage (for record keeping)
+      const file = files[0]
       const ext = file.name.split('.').pop()
       const path = `${user.id}/${Date.now()}.${ext}`
       const { error: uploadErr } = await supabase.storage
@@ -100,12 +101,14 @@ export default function AddBet() {
 
       setScreenshotUrl(publicUrl)
 
-      // 2. Convert to base64 and call the API
-      const imageBase64 = await fileToBase64(file)
+      // 2. Convert all files to base64 in parallel and call the API
+      const images = await Promise.all(
+        files.map(async (f) => ({ imageBase64: await fileToBase64(f), mimeType: f.type }))
+      )
       const response = await fetch('/api/extract-bet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64, mimeType: file.type }),
+        body: JSON.stringify({ images }),
       })
 
       const result = await response.json()
@@ -161,7 +164,7 @@ export default function AddBet() {
 
       setExtractMsg({
         type: 'success',
-        text: '✓ Form pre-filled from screenshot — review everything before saving.',
+        text: `✓ Form pre-filled from ${files.length > 1 ? `${files.length} screenshots` : 'screenshot'} — review everything before saving.`,
       })
     } catch (err) {
       setExtractMsg({ type: 'error', text: `Could not read screenshot: ${err.message}` })
@@ -263,6 +266,7 @@ export default function AddBet() {
             ref={fileInputRef}
             type="file"
             accept="image/png,image/jpeg,image/webp,image/gif"
+            multiple
             onChange={handleScreenshotSelect}
             className="hidden"
           />
@@ -279,22 +283,27 @@ export default function AddBet() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                 </svg>
-                Reading screenshot...
+                Reading {screenshotPreviews.length > 1 ? `${screenshotPreviews.length} screenshots` : 'screenshot'}...
               </span>
-            ) : screenshotPreview ? (
-              '↑ Upload a different screenshot'
+            ) : screenshotPreviews.length > 0 ? (
+              '↑ Upload different screenshot(s)'
             ) : (
-              '↑ Upload Sportsbet screenshot'
+              '↑ Upload Sportsbet screenshot(s)'
             )}
           </button>
 
-          {/* Image preview */}
-          {screenshotPreview && (
-            <img
-              src={screenshotPreview}
-              alt="Bet screenshot"
-              className="w-full max-h-64 object-contain rounded-lg border border-slate-600"
-            />
+          {/* Image previews — thumbnail grid */}
+          {screenshotPreviews.length > 0 && (
+            <div className={`grid gap-2 ${screenshotPreviews.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              {screenshotPreviews.map((src, i) => (
+                <img
+                  key={i}
+                  src={src}
+                  alt={`Screenshot ${i + 1}`}
+                  className="w-full max-h-64 object-contain rounded-lg border border-slate-600"
+                />
+              ))}
+            </div>
           )}
 
           {/* Extract result message */}

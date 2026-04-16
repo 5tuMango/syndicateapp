@@ -1,6 +1,7 @@
 // Vercel Serverless Function — keeps the Anthropic API key server-side only
 // POST /api/extract-bet
-// Body: { imageBase64: string, mimeType: string }
+// Body: { images: [{ imageBase64, mimeType }] }
+//   OR legacy: { imageBase64: string, mimeType: string }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -12,17 +13,28 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not set on the server.' })
   }
 
-  const { imageBase64, mimeType } = req.body
-  if (!imageBase64 || !mimeType) {
-    return res.status(400).json({ error: 'Missing imageBase64 or mimeType in request body.' })
+  const { imageBase64, mimeType, images } = req.body
+
+  // Normalise to array — support both legacy single-image and new multi-image format
+  const imageList = images && images.length > 0
+    ? images
+    : imageBase64 ? [{ imageBase64, mimeType }] : []
+
+  if (imageList.length === 0) {
+    return res.status(400).json({ error: 'Missing images in request body.' })
   }
 
   // Inject current year so Claude never guesses a year from a screenshot that omits it
   const currentYear = new Date().getFullYear()
+  const multipleScreenshots = imageList.length > 1
 
-  const prompt = `You are reading a screenshot from the Sportsbet app (Australian sports betting platform) showing a bet slip or bet confirmation screen.
+  const prompt = `You are reading ${multipleScreenshots ? `${imageList.length} screenshots` : 'a screenshot'} from the Sportsbet app (Australian sports betting platform) showing a bet slip or bet confirmation screen.
 
-Extract all visible bet details and return them as a single valid JSON object. Use these exact field names:
+${multipleScreenshots ? `IMPORTANT — MULTIPLE SCREENSHOTS:
+These screenshots are all from the SAME bet slip. They are scrolled views of the same screen, so some content (e.g. the bet header, odds, stake) may only appear in one screenshot while the legs are spread across multiple. Treat them as one continuous scrolled view. Combine all visible information across all screenshots to produce a single complete result — do NOT create duplicate legs if the same leg appears in more than one screenshot.
+If a screenshot appears to start mid-bet (e.g. no header visible), assume it is a continuation of the same bet shown in the other screenshots.
+
+` : ''}Extract all visible bet details and return them as a single valid JSON object. Use these exact field names:
 
 - "sport": the sport for the overall bet. Use one of these values only: AFL, NRL, Cricket, Horse Racing, Greyhounds, Tennis, Soccer, NBA, NFL, Boxing, MMA, Rugby Union, Golf, Multi, Other. Use "Multi" when the bet spans more than one sport (e.g. AFL legs AND horse racing legs in the same multi).
 - "event": the main event or match name (string)
@@ -52,8 +64,8 @@ Extract all visible bet details and return them as a single valid JSON object. U
   ]
 
 Rules:
-- Only include a field if you can clearly read it from the screenshot
-- If a value is unclear or not visible, omit that field entirely
+- Only include a field if you can clearly read it from the screenshot${multipleScreenshots ? 's' : ''}
+- If a value is unclear or not visible in any screenshot, omit that field entirely
 - Return ONLY the raw JSON object — no markdown, no code blocks, no explanation
 
 IMPORTANT — Sportsbet Power Price:
@@ -61,6 +73,15 @@ On Sportsbet, a "Power Price" bet shows TWO odds numbers next to the bet type, e
 - The FIRST number (e.g. 72.00) is the boosted/current odds — use this as "odds"
 - The SECOND number (e.g. 58.40) is the original base price — ignore it completely
 - Neither number is the stake. The stake is a separate dollar amount shown elsewhere on the slip (e.g. "Stake: $10.00" or "You Bet: $10.00"). If no stake is clearly labelled, omit the "stake" field entirely.`
+
+  // Build content array: all images first, then the prompt text
+  const content = [
+    ...imageList.map((img) => ({
+      type: 'image',
+      source: { type: 'base64', media_type: img.mimeType, data: img.imageBase64 },
+    })),
+    { type: 'text', text: prompt },
+  ]
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -73,25 +94,7 @@ On Sportsbet, a "Power Price" bet shows TWO odds numbers next to the bet type, e
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: mimeType,
-                  data: imageBase64,
-                },
-              },
-              {
-                type: 'text',
-                text: prompt,
-              },
-            ],
-          },
-        ],
+        messages: [{ role: 'user', content }],
       }),
     })
 
