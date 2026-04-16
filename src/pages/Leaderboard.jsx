@@ -10,7 +10,7 @@ const SORT_OPTIONS = [
   { key: 'winnings', label: 'Winnings', format: (m) => `$${m.winnings.toFixed(2)}`, color: () => 'text-white' },
   { key: 'pl', label: 'P&L', format: (m) => formatCurrency(m.pl), color: (m) => profitLossColor(m.pl) },
   { key: 'winRate', label: 'Win Rate', format: (m) => `${m.winRate}%`, color: () => 'text-white' },
-  { key: 'riskProfile', label: 'Risk Profile', format: (m) => m.riskProfile > 0 ? `${m.riskProfile.toFixed(2)}x` : '—', color: () => 'text-purple-400' },
+  { key: 'riskProfile', label: 'Risk Profile', format: (m) => m.riskProfile > 0 ? `$${m.riskProfile.toFixed(2)}` : '—', color: () => 'text-purple-400' },
   { key: 'total', label: 'Bets', format: (m) => m.total, color: () => 'text-white' },
 ]
 
@@ -47,9 +47,10 @@ export default function Leaderboard() {
     const pl = memberBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
     const staked = memberBets.filter((b) => b.outcome !== 'void').reduce((sum, b) => sum + parseFloat(b.stake), 0)
     const winnings = memberBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
-    // Risk Profile: weighted average odds per dollar staked (avg odds across all resolved bets)
-    const riskProfile = resolved.length > 0
-      ? resolved.reduce((sum, b) => sum + parseFloat(b.odds), 0) / resolved.length
+    // Risk Profile: average (stake × odds) per bet across all bets — measures boldness regardless of outcome
+    // e.g. $5 @ 200 scores 1000, $45 @ 5 scores 225 → avg of those two = 612.50
+    const riskProfile = memberBets.length > 0
+      ? memberBets.reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0) / memberBets.length
       : 0
     return { total: memberBets.length, won, lost, pending, voided, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, pl, staked, winnings, riskProfile }
   }
