@@ -56,6 +56,7 @@ CRITICAL — player context carries across screenshots: In Sportsbet's SGM layou
   - "odds": decimal odds for this leg as a number — use null if this leg is part of an SGM group (SGM sub-legs have no individual odds)
   - "leg_group": integer (1, 2, 3…) if this leg belongs to an SGM within the multi, otherwise null. All sub-legs of the same SGM share the same leg_group number.
   - "group_odds": the combined decimal odds of the SGM group (e.g. 3.20) — include on every leg that has a leg_group. Null for standalone legs.
+  - "outcome": the result of this leg if visible — one of "won", "lost", "void". Omit or use "pending" if the leg has not yet been resolved.
 
   Example for a multi containing an SGM @ 3.20 (Essendon v Melbourne, with two player props) plus a standalone horse race @ 1.40:
   [
@@ -66,6 +67,7 @@ CRITICAL — player context carries across screenshots: In Sportsbet's SGM layou
   ]
   Note how BOTH player prop legs include the player name "Kysaiah Pickett" in the selection field — never just "2+ Goals" or "20+ Disposals" alone.
 
+- "outcome": the overall result of the bet if visible — one of "won", "lost", "void". Omit or use "pending" if not yet resolved.
 - "is_bonus_bet": true if this bet was placed using a free/bonus bet (look for labels like "Bonus Bet", "Free Bet", "Bet Credits", stake shown as bonus/free rather than real money). Omit or set false if it's a normal cash bet.
 - "bet_return_text": if the bet slip shows a "Bet Return" or "Money Back" promotion attached to this bet (e.g. "Any leg fails, get a $50.00 Bonus Bet"), extract the full description as a string. Omit if not present.
 - "bet_return_value": the dollar value of the bet return offer as a number (e.g. 50.00). Omit if no bet return is shown.

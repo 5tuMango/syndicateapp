@@ -198,9 +198,24 @@ export default function AddBet() {
             odds: leg.odds != null ? String(leg.odds) : '',
             leg_group: leg.leg_group != null ? String(leg.leg_group) : '',
             group_odds: leg.group_odds != null ? String(leg.group_odds) : '',
-            outcome: 'pending',
+            outcome: leg.outcome && ['won','lost','void'].includes(leg.outcome) ? leg.outcome : 'pending',
           }))
         )
+      }
+
+      // Auto-set overall outcome if Claude detected it, or derive from legs
+      if (d.outcome && ['won','lost','void'].includes(d.outcome)) {
+        setForm((prev) => ({ ...prev, outcome: d.outcome }))
+      } else if (d.bet_type === 'multi' && Array.isArray(d.legs) && d.legs.length > 0) {
+        const legOutcomes = d.legs.map((l) => l.outcome || 'pending')
+        const allResolved = legOutcomes.every((o) => o !== 'pending')
+        if (allResolved) {
+          const derived = legOutcomes.some((o) => o === 'lost') ? 'lost'
+            : legOutcomes.every((o) => o === 'void') ? 'void'
+            : legOutcomes.some((o) => o === 'won') ? 'won'
+            : 'pending'
+          setForm((prev) => ({ ...prev, outcome: derived }))
+        }
       }
 
       setExtractMsg({
@@ -283,6 +298,17 @@ export default function AddBet() {
           }))
         )
         if (legsErr) throw legsErr
+
+        // Auto-resolve bet outcome from legs if all are settled and outcome is still pending
+        if (form.outcome === 'pending') {
+          const allSettled = legs.every((l) => l.outcome !== 'pending')
+          if (allSettled) {
+            const derived = legs.some((l) => l.outcome === 'lost') ? 'lost'
+              : legs.every((l) => l.outcome === 'void') ? 'void'
+              : 'won'
+            await supabase.from('bets').update({ outcome: derived }).eq('id', bet.id)
+          }
+        }
       }
 
       navigate('/')
