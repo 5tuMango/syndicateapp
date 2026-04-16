@@ -10,6 +10,7 @@ export default function Leaderboard() {
   const { user } = useAuth()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
+  const [teams, setTeams] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -17,12 +18,14 @@ export default function Leaderboard() {
   }, [])
 
   async function fetchData() {
-    const [betsRes, membersRes] = await Promise.all([
+    const [betsRes, membersRes, teamsRes] = await Promise.all([
       supabase.from('bets').select('user_id, stake, odds, outcome'),
-      supabase.from('profiles').select('id, username, full_name').order('full_name'),
+      supabase.from('profiles').select('id, username, full_name, team_id').order('full_name'),
+      supabase.from('teams').select('*').order('created_at'),
     ])
     setBets(betsRes.data || [])
     setMembers(membersRes.data || [])
+    setTeams(teamsRes.data || [])
     setLoading(false)
   }
 
@@ -51,6 +54,29 @@ export default function Leaderboard() {
       })
       .sort((a, b) => b.pl - a.pl)
   }, [bets, members])
+
+  const teamLeaderboard = useMemo(() => {
+    return teams.map((team) => {
+      const teamMembers = members.filter((m) => m.team_id === team.id)
+      const memberIds = new Set(teamMembers.map((m) => m.id))
+      const teamBets = bets.filter((b) => memberIds.has(b.user_id))
+      const resolved = teamBets.filter((b) => b.outcome !== 'pending' && b.outcome !== 'void')
+      const won = teamBets.filter((b) => b.outcome === 'won').length
+      const lost = teamBets.filter((b) => b.outcome === 'lost').length
+      const pl = teamBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
+      const staked = teamBets.filter((b) => b.outcome !== 'void').reduce((sum, b) => sum + parseFloat(b.stake), 0)
+      return {
+        ...team,
+        memberCount: teamMembers.length,
+        total: teamBets.length,
+        won,
+        lost,
+        winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0,
+        pl,
+        staked,
+      }
+    }).sort((a, b) => b.pl - a.pl)
+  }, [bets, members, teams])
 
   const groupStats = useMemo(() => {
     const pl = bets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
@@ -99,6 +125,58 @@ export default function Leaderboard() {
         ))}
       </div>
 
+      {/* Team leaderboard */}
+      {teamLeaderboard.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Team Standings</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {teamLeaderboard.map((team, i) => {
+              const isLeading = i === 0 && teamLeaderboard.length > 1 && team.pl !== teamLeaderboard[1].pl
+              return (
+                <div
+                  key={team.id}
+                  className={`bg-slate-800 rounded-lg border p-4 space-y-3 ${
+                    isLeading ? 'border-yellow-500/30' : 'border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {isLeading && <span>🏆</span>}
+                      <span className="font-bold text-white">{team.name}</span>
+                      <span className="text-xs text-slate-500">{team.memberCount} members</span>
+                    </div>
+                    <span className={`text-lg font-bold ${profitLossColor(team.pl)}`}>
+                      {formatCurrency(team.pl)}
+                    </span>
+                  </div>
+                  <div className="flex gap-4 text-sm">
+                    <div>
+                      <span className="text-slate-500 text-xs">Bets </span>
+                      <span className="text-white font-medium">{team.total}</span>
+                    </div>
+                    <div>
+                      <span className="text-green-400">{team.won}W</span>
+                      <span className="text-slate-600 mx-1">/</span>
+                      <span className="text-red-400">{team.lost}L</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs">Win rate </span>
+                      <span className="text-white font-medium">{team.winRate}%</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs">Staked </span>
+                      <span className="text-white font-medium">${team.staked.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Individual</h2>
       {leaderboard.length === 0 ? (
         <div className="text-center text-slate-400 py-16">No bets recorded yet.</div>
       ) : (
@@ -171,6 +249,7 @@ export default function Leaderboard() {
           })}
         </div>
       )}
+      </div>
     </div>
   )
 }
