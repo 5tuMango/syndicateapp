@@ -95,17 +95,18 @@ export default async function handler(req, res) {
   }
   const multi = inserted[0]
 
-  // ── 5. Auto-add all registered members as leg slots ───────────────────────
-  const profilesRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/profiles?select=id&order=full_name`,
+  // ── 5. Auto-add all personas as leg slots ─────────────────────────────────
+  const personasRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/personas?select=id,nickname,claimed_by&order=nickname`,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
   )
-  const profiles = await profilesRes.json()
+  const personas = await personasRes.json()
 
-  if (Array.isArray(profiles) && profiles.length > 0) {
-    const legs = profiles.map((p, i) => ({
+  if (Array.isArray(personas) && personas.length > 0) {
+    const legs = personas.map((p, i) => ({
       weekly_multi_id: multi.id,
-      assigned_user_id: p.id,
+      persona_id: p.id,
+      assigned_user_id: p.claimed_by || null,
       sort_order: i,
     }))
     await fetch(`${SUPABASE_URL}/rest/v1/weekly_multi_legs`, {
@@ -120,10 +121,11 @@ export default async function handler(req, res) {
     })
   }
 
-  // ── 6. Send notifications to all members ──────────────────────────────────
-  if (Array.isArray(profiles) && profiles.length > 0) {
-    const notifs = profiles.map((p) => ({
-      user_id: p.id,
+  // ── 6. Send notifications to claimed members only ─────────────────────────
+  const claimed = Array.isArray(personas) ? personas.filter((p) => p.claimed_by) : []
+  if (claimed.length > 0) {
+    const notifs = claimed.map((p) => ({
+      user_id: p.claimed_by,
       title: `${weekLabel} is live!`,
       body: 'Enter your pick for this week\'s multi.',
       link: '/weekly-multi',
@@ -144,6 +146,6 @@ export default async function handler(req, res) {
     message: `Created ${weekLabel}`,
     weekLabel,
     multiId: multi.id,
-    membersAdded: Array.isArray(profiles) ? profiles.length : 0,
+    membersAdded: Array.isArray(personas) ? personas.length : 0,
   })
 }

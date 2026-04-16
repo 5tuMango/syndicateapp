@@ -12,6 +12,8 @@ export default function AdminAssignBets() {
   const [autoAssigning, setAutoAssigning] = useState(false)
   const [autoMsg, setAutoMsg] = useState(null)
   const [saving, setSaving] = useState({})
+  const [autoAssigningLegs, setAutoAssigningLegs] = useState(false)
+  const [autoLegsMsg, setAutoLegsMsg] = useState(null)
 
   if (!profile?.is_admin) return <Navigate to="/" replace />
 
@@ -54,6 +56,25 @@ export default function AdminAssignBets() {
     setAutoMsg(`Auto-assigned ${total} bet${total !== 1 ? 's' : ''}`)
     setAutoAssigning(false)
     load()
+  }
+
+  // Auto-assign weekly multi legs: match assigned_user_id → persona.claimed_by
+  async function autoAssignLegs() {
+    setAutoAssigningLegs(true)
+    setAutoLegsMsg(null)
+    const claimed = personas.filter((p) => p.claimed_by)
+    let total = 0
+    for (const persona of claimed) {
+      const { data: updated } = await supabase
+        .from('weekly_multi_legs')
+        .update({ persona_id: persona.id })
+        .eq('assigned_user_id', persona.claimed_by)
+        .is('persona_id', null)
+        .select('id')
+      total += updated?.length || 0
+    }
+    setAutoLegsMsg(`Auto-assigned ${total} leg${total !== 1 ? 's' : ''}`)
+    setAutoAssigningLegs(false)
   }
 
   async function assignBet(betId, personaId) {
@@ -129,6 +150,26 @@ export default function AdminAssignBets() {
       <p className="text-xs text-slate-500">
         Auto-assign links bets to personas based on who's signed in and claimed. Use the dropdowns below for manual overrides.
       </p>
+
+      {/* Weekly multi legs auto-assign */}
+      <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-4 flex items-center justify-between gap-4">
+        <div>
+          <div className="text-white font-semibold text-sm">Weekly Multi Legs</div>
+          <div className="text-xs text-slate-400 mt-0.5">
+            Link existing leg slots to personas based on assigned_user_id.
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <button
+            onClick={autoAssignLegs}
+            disabled={autoAssigningLegs}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            {autoAssigningLegs ? 'Assigning…' : 'Auto-assign legs'}
+          </button>
+          {autoLegsMsg && <span className="text-xs text-green-400">{autoLegsMsg}</span>}
+        </div>
+      </div>
 
       {/* Bet list */}
       <div className="space-y-2">

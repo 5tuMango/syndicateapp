@@ -39,12 +39,12 @@ function OutcomePill({ outcome }) {
 }
 
 export default function WeeklyMulti() {
-  const { user, profile } = useAuth()
+  const { user, profile, persona: myPersona } = useAuth()
   const personaMap = usePersonas()
   const isAdmin = profile?.is_admin
 
   const [multis, setMultis] = useState([])
-  const [profiles, setProfiles] = useState([])
+  const [personas, setPersonas] = useState([])
   const [loading, setLoading] = useState(true)
 
   // Create multi modal
@@ -88,23 +88,34 @@ export default function WeeklyMulti() {
 
   async function load() {
     setLoading(true)
-    const [{ data: multisData }, { data: profilesData }] = await Promise.all([
+    const [{ data: multisData }, { data: personasData }] = await Promise.all([
       supabase
         .from('weekly_multis')
         .select('*, weekly_multi_legs(*)')
         .order('created_at', { ascending: false }),
-      supabase.from('profiles').select('id, full_name, username'),
+      supabase.from('personas').select('*').order('nickname'),
     ])
     setMultis(multisData || [])
-    setProfiles(profilesData || [])
+    setPersonas(personasData || [])
     setLoading(false)
   }
 
   function profileName(id) {
-    const persona = personaMap[id]
-    if (persona) return `${persona.emoji} ${persona.nickname}`
-    const p = profiles.find((x) => x.id === id)
-    return p ? p.full_name || p.username : 'Unknown'
+    const p = personaMap[id]
+    if (p) return `${p.emoji} ${p.nickname}`
+    // Fallback: check by persona_id directly in personas list
+    const byId = personas.find((x) => x.id === id || x.claimed_by === id)
+    return byId ? `${byId.emoji} ${byId.nickname}` : 'Unknown'
+  }
+
+  function legPersonaName(leg) {
+    // Prefer persona_id lookup, fall back to assigned_user_id
+    if (leg.persona_id) {
+      const p = personas.find((x) => x.id === leg.persona_id)
+      if (p) return `${p.emoji} ${p.nickname}`
+    }
+    if (leg.assigned_user_id) return profileName(leg.assigned_user_id)
+    return leg.assigned_name || 'Unknown'
   }
 
   // ── Season leaderboard (resulted multis) ─────────────────────────────────
@@ -148,24 +159,27 @@ export default function WeeklyMulti() {
       return
     }
     if (!error && multi) {
-      // Auto-add all registered members as leg slots
-      if (addAllOnCreate && profiles.length > 0) {
+      // Auto-add all personas as leg slots
+      if (addAllOnCreate && personas.length > 0) {
         await supabase.from('weekly_multi_legs').insert(
-          profiles.map((p, i) => ({
+          personas.map((p, i) => ({
             weekly_multi_id: multi.id,
-            assigned_user_id: p.id,
+            persona_id: p.id,
+            assigned_user_id: p.claimed_by || null,
             assigned_name: null,
             sort_order: i,
           }))
         )
       }
-      // Notify all profiles
-      const notifs = profiles.map((p) => ({
-        user_id: p.id,
-        title: `New Weekly Multi: ${weekLabel.trim()}`,
-        body: 'A new weekly multi has been created. Enter your pick!',
-        link: '/weekly-multi',
-      }))
+      // Notify claimed members
+      const notifs = personas
+        .filter((p) => p.claimed_by)
+        .map((p) => ({
+          user_id: p.claimed_by,
+          title: `New Weekly Multi: ${weekLabel.trim()}`,
+          body: 'A new weekly multi has been created. Enter your pick!',
+          link: '/weekly-multi',
+        }))
       if (notifs.length > 0) {
         await supabase.from('notifications').insert(notifs)
       }
@@ -182,11 +196,13 @@ export default function WeeklyMulti() {
   async function handleAddLeg() {
     if (!addingLeg) return
     setAddingLegSaving(true)
-    const userId = legAssignee || null
-    const name = userId ? null : legAssigneeName.trim() || null
+    const personaId = legAssignee || null
+    const selectedPersona = personaId ? personas.find((p) => p.id === personaId) : null
+    const name = !personaId ? legAssigneeName.trim() || null : null
     await supabase.from('weekly_multi_legs').insert({
       weekly_multi_id: addingLeg,
-      assigned_user_id: userId,
+      persona_id: personaId,
+      assigned_user_id: selectedPersona?.claimed_by || null,
       assigned_name: name,
       sort_order: 0,
     })
@@ -333,13 +349,15 @@ export default function WeeklyMulti() {
       .from('weekly_multis')
       .update({ status: 'resulted' })
       .eq('id', multi.id)
-    // Notify all profiles
-    const notifs = profiles.map((p) => ({
-      user_id: p.id,
-      title: `Weekly Multi Resulted: ${multi.week_label}`,
-      body: 'The weekly multi has been resulted. Check how everyone went!',
-      link: '/weekly-multi',
-    }))
+    // Notify all claimed personas
+    const notifs = personas
+      .filter((p) => p.claimed_by)
+      .map((p) => ({
+        user_id: p.claimed_by,
+        title: `Weekly Multi Resulted: ${multi.week_label}`,
+        body: 'The weekly multi has been resulted. Check how everyone went!',
+        link: '/weekly-multi',
+      }))
     if (notifs.length > 0) {
       await supabase.from('notifications').insert(notifs)
     }
@@ -526,10 +544,10 @@ export default function WeeklyMulti() {
                 {legs.length > 0 ? (
                   <div className="space-y-2">
                     {legs.map((leg) => {
-                      const isMyLeg = leg.assigned_user_id === user?.id
-                      const legName = leg.assigned_user_id
-                        ? profileName(leg.assigned_user_id)
-                        : leg.assigned_name || 'Unknown'
+                      const isMyLeg =
+                        (leg.persona_id && leg.persona_id === myPersona?.id) ||
+                        (!leg.persona_id && leg.assigned_user_id === user?.id)
+                      const legName = legPersonaName(leg)
                       const canEdit =
                         (isMyLeg || isAdmin) && multi.status === 'open'
                       const hasFullDetails = leg.event || leg.selection
@@ -651,7 +669,7 @@ export default function WeeklyMulti() {
                 className="w-4 h-4 rounded accent-green-500"
               />
               <span className="text-sm text-slate-300">
-                Auto-add all {profiles.length} members as leg slots
+                Auto-add all {personas.length} personas as leg slots
               </span>
             </label>
             {createError && (
@@ -682,16 +700,16 @@ export default function WeeklyMulti() {
           <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 w-full max-w-sm space-y-4">
             <h3 className="text-white font-semibold">Add Member Slot</h3>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Registered user</label>
+              <label className="block text-xs text-slate-400 mb-1">Persona</label>
               <select
                 value={legAssignee}
                 onChange={(e) => { setLegAssignee(e.target.value); setLegAssigneeName('') }}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-green-500"
               >
-                <option value="">— Select member —</option>
-                {profiles.map((p) => (
+                <option value="">— Select persona —</option>
+                {personas.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.full_name || p.username}
+                    {p.emoji} {p.nickname}{!p.claimed_by ? ' (unclaimed)' : ''}
                   </option>
                 ))}
               </select>
