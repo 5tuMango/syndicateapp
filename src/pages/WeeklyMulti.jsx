@@ -48,6 +48,7 @@ export default function WeeklyMulti() {
   // Create multi modal
   const [showCreate, setShowCreate] = useState(false)
   const [weekLabel, setWeekLabel] = useState('')
+  const [addAllOnCreate, setAddAllOnCreate] = useState(true)
   const [creating, setCreating] = useState(false)
 
   // Add member slot modal
@@ -122,6 +123,17 @@ export default function WeeklyMulti() {
       .select()
       .single()
     if (!error && multi) {
+      // Auto-add all registered members as leg slots
+      if (addAllOnCreate && profiles.length > 0) {
+        await supabase.from('weekly_multi_legs').insert(
+          profiles.map((p, i) => ({
+            weekly_multi_id: multi.id,
+            assigned_user_id: p.id,
+            assigned_name: null,
+            sort_order: i,
+          }))
+        )
+      }
       // Notify all profiles
       const notifs = profiles.map((p) => ({
         user_id: p.id,
@@ -468,9 +480,22 @@ export default function WeeklyMulti() {
                 value={weekLabel}
                 onChange={(e) => setWeekLabel(e.target.value)}
                 placeholder="e.g. Round 5 — 19 Apr 2026"
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && !creating && weekLabel.trim() && handleCreateMulti()}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-green-500"
               />
             </div>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={addAllOnCreate}
+                onChange={(e) => setAddAllOnCreate(e.target.checked)}
+                className="w-4 h-4 rounded accent-green-500"
+              />
+              <span className="text-sm text-slate-300">
+                Auto-add all {profiles.length} members as leg slots
+              </span>
+            </label>
             <div className="flex gap-3">
               <button
                 onClick={handleCreateMulti}
