@@ -352,11 +352,16 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
           <p className="text-white font-medium leading-snug">{bet.event}</p>
           {bet.notes && <p className="text-slate-400 text-sm mt-0.5">{bet.notes}</p>}
         </div>
-        <span
-          className={`text-xs px-2 py-0.5 rounded border shrink-0 ${outcomeBadge(bet.outcome)}`}
-        >
-          {bet.outcome}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          {bet.outcome === 'won' && (
+            <span className="text-green-400 font-bold text-lg leading-none">
+              +${(parseFloat(bet.stake) * parseFloat(bet.odds)).toFixed(2)}
+            </span>
+          )}
+          <span className={`text-xs px-2 py-0.5 rounded border ${outcomeBadge(bet.outcome)}`}>
+            {bet.outcome}
+          </span>
+        </div>
       </div>
 
       {/* Stats + actions row */}
