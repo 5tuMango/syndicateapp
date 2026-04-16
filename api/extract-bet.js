@@ -66,6 +66,10 @@ CRITICAL — player context carries across screenshots: In Sportsbet's SGM layou
   ]
   Note how BOTH player prop legs include the player name "Kysaiah Pickett" in the selection field — never just "2+ Goals" or "20+ Disposals" alone.
 
+- "is_bonus_bet": true if this bet was placed using a free/bonus bet (look for labels like "Bonus Bet", "Free Bet", "Bet Credits", stake shown as bonus/free rather than real money). Omit or set false if it's a normal cash bet.
+- "bet_return_text": if the bet slip shows a "Bet Return" or "Money Back" promotion attached to this bet (e.g. "Any leg fails, get a $50.00 Bonus Bet"), extract the full description as a string. Omit if not present.
+- "bet_return_value": the dollar value of the bet return offer as a number (e.g. 50.00). Omit if no bet return is shown.
+
 Rules:
 - Only include a field if you can clearly read it from the screenshot${multipleScreenshots ? 's' : ''}
 - If a value is unclear or not visible in any screenshot, omit that field entirely

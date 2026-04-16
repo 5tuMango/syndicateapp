@@ -158,7 +158,33 @@ export default function AddBet() {
         odds: d.odds != null ? String(d.odds) : prev.odds,
         stake: d.stake != null ? String(d.stake) : prev.stake,
         event_time: d.event_time ? d.event_time.substring(0, 16) : prev.event_time,
+        is_bonus_bet: d.is_bonus_bet === true ? true : prev.is_bonus_bet,
+        bet_return_text: d.bet_return_text || prev.bet_return_text,
+        bet_return_value: d.bet_return_value != null ? String(d.bet_return_value) : prev.bet_return_value,
       }))
+
+      // 4a. Auto-claim bet return if this is a bonus bet
+      // Find the most recent unclaimed bet return for this persona and mark it claimed
+      if (d.is_bonus_bet === true) {
+        const personaId = (profile?.is_admin && selectedPersonaId) ? selectedPersonaId : (persona?.id || null)
+        if (personaId) {
+          const cutoff = new Date()
+          cutoff.setDate(cutoff.getDate() - 21)
+          const { data: matchingBets } = await supabase
+            .from('bets')
+            .select('id')
+            .eq('persona_id', personaId)
+            .eq('outcome', 'lost')
+            .eq('bet_return_claimed', false)
+            .gt('bet_return_value', 0)
+            .gte('date', cutoff.toISOString().slice(0, 10))
+            .order('date', { ascending: false })
+            .limit(1)
+          if (matchingBets?.length > 0) {
+            await supabase.from('bets').update({ bet_return_claimed: true }).eq('id', matchingBets[0].id)
+          }
+        }
+      }
 
       // 4. Pre-fill legs for multi bets
       if (d.bet_type === 'multi' && Array.isArray(d.legs) && d.legs.length > 0) {
