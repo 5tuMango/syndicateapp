@@ -546,6 +546,15 @@ export default function AddBet() {
           </div>
         </div>
 
+        {/* ── Quick Save ── */}
+        <button
+          type="submit"
+          disabled={saving || extracting}
+          className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors text-sm"
+        >
+          {saving ? 'Saving...' : 'Save Bet'}
+        </button>
+
         {/* ── Multi Legs ── */}
         {form.bet_type === 'multi' && (
           <div className="bg-slate-800 rounded-xl border border-slate-700 p-5 space-y-4">
