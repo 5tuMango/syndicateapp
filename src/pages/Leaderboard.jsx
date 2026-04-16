@@ -74,7 +74,8 @@ export default function Leaderboard() {
     const staked = bets.reduce((sum, b) => sum + parseFloat(b.stake), 0)
     const resolved = bets.filter((b) => b.outcome !== 'pending')
     const won = bets.filter((b) => b.outcome === 'won').length
-    return { pl, staked, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, total: bets.length }
+    const winnings = bets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
+    return { pl, staked, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, total: bets.length, winnings }
   }, [bets])
 
   const activeSortOpt = SORT_OPTIONS.find((o) => o.key === sortKey)
@@ -89,14 +90,19 @@ export default function Leaderboard() {
       </div>
 
       {/* Group summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="flex gap-3 overflow-x-auto pb-1">
+        {/* Total Winnings — hero card pinned left */}
+        <div className="bg-green-500/15 rounded-lg border border-green-500/40 p-4 shrink-0 min-w-[140px]">
+          <p className="text-green-400/70 text-xs uppercase tracking-wide">Total Winnings</p>
+          <p className="text-2xl font-bold mt-1 text-green-400">${groupStats.winnings.toFixed(2)}</p>
+        </div>
         {[
           { label: 'Group Bets', value: groupStats.total, color: 'text-white' },
-          { label: 'Group Win Rate', value: `${groupStats.winRate}%`, color: 'text-white' },
-          { label: 'Group Staked', value: `$${groupStats.staked.toFixed(2)}`, color: 'text-white' },
-          { label: 'Group P&L', value: formatCurrency(groupStats.pl), color: profitLossColor(groupStats.pl) },
+          { label: 'Win Rate', value: `${groupStats.winRate}%`, color: 'text-white' },
+          { label: 'Staked', value: `$${groupStats.staked.toFixed(2)}`, color: 'text-white' },
+          { label: 'P&L', value: formatCurrency(groupStats.pl), color: profitLossColor(groupStats.pl) },
         ].map(({ label, value, color }) => (
-          <div key={label} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+          <div key={label} className="bg-slate-800 rounded-lg border border-slate-700 p-4 shrink-0 min-w-[110px]">
             <p className="text-slate-400 text-xs uppercase tracking-wide">{label}</p>
             <p className={`text-xl font-bold mt-1 ${color}`}>{value}</p>
           </div>
@@ -151,6 +157,8 @@ export default function Leaderboard() {
                     <span className="text-slate-500">Bets <span className="text-white font-medium">{team.total}</span></span>
                     <span className="text-green-400">{team.won}W</span>
                     <span className="text-red-400">{team.lost}L</span>
+                    {team.pending > 0 && <span className="text-yellow-400">{team.pending}P</span>}
+                    {team.voided > 0 && <span className="text-slate-500">{team.voided}V</span>}
                     <span className="text-slate-500">Win rate <span className="text-white font-medium">{team.winRate}%</span></span>
                     <span className={profitLossColor(team.pl)}>P&L {formatCurrency(team.pl)}</span>
                   </div>
@@ -195,7 +203,8 @@ export default function Leaderboard() {
                         <span>{member.total} bets</span>
                         <span className="text-green-400">{member.won}W</span>
                         <span className="text-red-400">{member.lost}L</span>
-                        {member.pending > 0 && <span className="text-yellow-400">{member.pending} pending</span>}
+                        {member.pending > 0 && <span className="text-yellow-400">{member.pending}P</span>}
+                        {member.voided > 0 && <span className="text-slate-500">{member.voided}V</span>}
                         <span>· ${member.staked.toFixed(2)} staked</span>
                       </div>
                     ) : (
