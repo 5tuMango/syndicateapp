@@ -40,6 +40,7 @@ export default function Leaderboard() {
         const voided = mb.filter((b) => b.outcome === 'void').length
         const pl = mb.reduce((sum, b) => sum + calcProfitLoss(b), 0)
         const staked = mb.filter((b) => b.outcome !== 'void').reduce((sum, b) => sum + parseFloat(b.stake), 0)
+        const winnings = mb.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
         return {
           ...member,
           total: mb.length,
@@ -50,9 +51,10 @@ export default function Leaderboard() {
           winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0,
           pl,
           staked,
+          winnings,
         }
       })
-      .sort((a, b) => b.pl - a.pl)
+      .sort((a, b) => b.winnings - a.winnings)
   }, [bets, members])
 
   const teamLeaderboard = useMemo(() => {
@@ -65,6 +67,7 @@ export default function Leaderboard() {
       const lost = teamBets.filter((b) => b.outcome === 'lost').length
       const pl = teamBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
       const staked = teamBets.filter((b) => b.outcome !== 'void').reduce((sum, b) => sum + parseFloat(b.stake), 0)
+      const winnings = teamBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
       return {
         ...team,
         memberCount: teamMembers.length,
@@ -74,8 +77,9 @@ export default function Leaderboard() {
         winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0,
         pl,
         staked,
+        winnings,
       }
-    }).sort((a, b) => b.pl - a.pl)
+    }).sort((a, b) => b.winnings - a.winnings)
   }, [bets, members, teams])
 
   const groupStats = useMemo(() => {
@@ -107,16 +111,8 @@ export default function Leaderboard() {
         {[
           { label: 'Group Bets', value: groupStats.total, color: 'text-white' },
           { label: 'Group Win Rate', value: `${groupStats.winRate}%`, color: 'text-white' },
-          {
-            label: 'Group Staked',
-            value: `$${groupStats.staked.toFixed(2)}`,
-            color: 'text-white',
-          },
-          {
-            label: 'Group P&L',
-            value: formatCurrency(groupStats.pl),
-            color: profitLossColor(groupStats.pl),
-          },
+          { label: 'Group Staked', value: `$${groupStats.staked.toFixed(2)}`, color: 'text-white' },
+          { label: 'Group P&L', value: formatCurrency(groupStats.pl), color: profitLossColor(groupStats.pl) },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
             <p className="text-slate-400 text-xs uppercase tracking-wide">{label}</p>
@@ -145,9 +141,10 @@ export default function Leaderboard() {
                       <span className="font-bold text-white">{team.name}</span>
                       <span className="text-xs text-slate-500">{team.memberCount} members</span>
                     </div>
-                    <span className={`text-lg font-bold ${profitLossColor(team.pl)}`}>
-                      {formatCurrency(team.pl)}
-                    </span>
+                    <div className="text-right">
+                      <div className="text-lg font-bold text-white">${team.winnings.toFixed(2)}</div>
+                      <div className={`text-xs ${profitLossColor(team.pl)}`}>P&L {formatCurrency(team.pl)}</div>
+                    </div>
                   </div>
                   <div className="flex gap-4 text-sm">
                     <div>
@@ -237,12 +234,14 @@ export default function Leaderboard() {
                   )}
                 </div>
 
-                {/* P&L + win rate */}
+                {/* Winnings + P&L */}
                 <div className="text-right shrink-0">
-                  <div className={`text-base font-bold ${profitLossColor(member.pl)}`}>
-                    {formatCurrency(member.pl)}
+                  <div className="text-base font-bold text-white">
+                    ${member.winnings.toFixed(2)}
                   </div>
-                  <div className="text-xs text-slate-400">{member.winRate}% win rate</div>
+                  <div className={`text-xs ${profitLossColor(member.pl)}`}>
+                    P&L {formatCurrency(member.pl)}
+                  </div>
                 </div>
               </Link>
             )
