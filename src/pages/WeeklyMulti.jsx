@@ -62,6 +62,9 @@ export default function WeeklyMulti() {
   const [legForm, setLegForm] = useState({ raw_pick: '', event: '', description: '', selection: '', odds: '' })
   const [savingLeg, setSavingLeg] = useState(false)
 
+  // Inline pick editing: { [legId]: currentValue }
+  const [inlinePicks, setInlinePicks] = useState({})
+
   // Upload bet slip + match preview
   const [slipUploading, setSlipUploading] = useState(false)
   const [slipPreview, setSlipPreview] = useState(null) // { multiId, matches: [] }
@@ -202,6 +205,17 @@ export default function WeeklyMulti() {
       .eq('id', editingLeg.id)
     setSavingLeg(false)
     setEditingLeg(null)
+    load()
+  }
+
+  // ── Inline pick save (on blur / Enter) ───────────────────────────────────
+  async function saveInlinePick(leg) {
+    const value = inlinePicks[leg.id]
+    if (value === undefined || value.trim() === (leg.raw_pick || '').trim()) return
+    await supabase.from('weekly_multi_legs').update({
+      raw_pick: value.trim() || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', leg.id)
     load()
   }
 
@@ -453,82 +467,58 @@ export default function WeeklyMulti() {
                       return (
                         <div
                           key={leg.id}
-                          className="bg-slate-900/70 rounded-lg px-3 py-2.5 space-y-1.5"
+                          className="bg-slate-900/70 rounded-lg px-3 py-2.5"
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            {/* Name + odds */}
-                            <div className="flex items-center gap-2 flex-wrap min-w-0">
-                              <span
-                                className={`text-sm font-semibold ${
-                                  isMyLeg ? 'text-green-400' : 'text-slate-300'
-                                }`}
-                              >
-                                {legName}
-                                {isMyLeg && (
-                                  <span className="text-green-500/70 font-normal ml-1">
-                                    (You)
-                                  </span>
-                                )}
-                              </span>
-                              {leg.odds != null && (
-                                <span className="text-slate-400 text-xs">
-                                  @ {parseFloat(leg.odds).toFixed(2)}
-                                </span>
-                              )}
-                            </div>
-                            {/* Outcome badge */}
-                            <OutcomePill outcome={leg.outcome} />
-                          </div>
+                          {/* Row 1: name | inline input | odds | outcome */}
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-semibold shrink-0 w-24 truncate ${isMyLeg ? 'text-green-400' : 'text-slate-300'}`}>
+                              {legName}
+                            </span>
 
-                          {/* Pick details */}
-                          <div className="text-sm text-slate-400">
-                            {hasFullDetails ? (
-                              <>
-                                {leg.event && (
-                                  <span className="text-slate-200">{leg.event}</span>
-                                )}
-                                {leg.description && (
-                                  <span className="text-slate-400"> · {leg.description}</span>
-                                )}
-                                {leg.selection && (
-                                  <span className="text-green-400 font-medium">
-                                    {' '}
-                                    · {leg.selection}
-                                  </span>
-                                )}
-                              </>
-                            ) : leg.raw_pick ? (
-                              <span className="text-slate-300 italic">{leg.raw_pick}</span>
-                            ) : isMyLeg ? (
-                              <span className="italic text-slate-500 text-xs">
-                                Tap &apos;Enter pick&apos; to add your selection
-                              </span>
+                            {/* Inline pick field — editable if open & can edit, otherwise read-only */}
+                            {canEdit && !hasFullDetails ? (
+                              <input
+                                type="text"
+                                value={inlinePicks[leg.id] ?? (leg.raw_pick || '')}
+                                onChange={(e) => setInlinePicks(p => ({ ...p, [leg.id]: e.target.value }))}
+                                onBlur={() => saveInlinePick(leg)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur() } }}
+                                placeholder={isMyLeg ? 'e.g. Cats -16.5' : 'waiting...'}
+                                className="flex-1 min-w-0 bg-slate-800 border border-slate-600 focus:border-green-500 rounded px-2 py-1 text-sm text-white placeholder-slate-600 focus:outline-none transition-colors"
+                              />
                             ) : (
-                              <span className="italic text-slate-600 text-xs">
-                                Waiting for pick...
+                              <span className="flex-1 min-w-0 text-sm truncate">
+                                {hasFullDetails ? (
+                                  <>
+                                    <span className="text-slate-200">{leg.selection || leg.event}</span>
+                                    {leg.description && <span className="text-slate-500"> · {leg.description}</span>}
+                                  </>
+                                ) : leg.raw_pick ? (
+                                  <span className="text-slate-300 italic">{leg.raw_pick}</span>
+                                ) : (
+                                  <span className="text-slate-600 italic text-xs">Waiting for pick...</span>
+                                )}
                               </span>
                             )}
-                          </div>
 
-                          {/* Action buttons */}
-                          <div className="flex items-center gap-3 pt-0.5">
-                            {canEdit && (
-                              <button
-                                onClick={() => openEditLeg(leg)}
-                                className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                              >
-                                {hasPickEntered ? 'Edit' : 'Enter pick'}
-                              </button>
+                            {leg.odds != null && (
+                              <span className="text-slate-400 text-xs shrink-0">@ {parseFloat(leg.odds).toFixed(2)}</span>
                             )}
+                            <OutcomePill outcome={leg.outcome} />
                             {isAdmin && (
                               <button
                                 onClick={() => openOverride(leg)}
-                                className="text-xs text-slate-400 hover:text-yellow-400 transition-colors"
+                                className="text-xs text-slate-500 hover:text-yellow-400 transition-colors shrink-0"
                               >
                                 Result
                               </button>
                             )}
                           </div>
+
+                          {/* Row 2: full event detail (after slip upload) */}
+                          {hasFullDetails && leg.event && leg.event !== leg.selection && (
+                            <div className="mt-1 ml-[6.5rem] text-xs text-slate-500">{leg.event}</div>
+                          )}
                         </div>
                       )
                     })}
