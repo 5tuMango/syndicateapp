@@ -187,14 +187,21 @@ function OutcomePill({ outcome }) {
   )
 }
 
+const OVERRIDE_OUTCOMES = ['won', 'lost', 'void', 'pending']
+
 export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [checking, setChecking] = useState(false)
   const [checkMsg, setCheckMsg] = useState(null) // { type: 'ok'|'info'|'warn', text }
   const [uploadingResult, setUploadingResult] = useState(false)
+
+  // Admin outcome override
+  const [overridingOutcome, setOverridingOutcome] = useState(false)
+  const [overrideResult, setOverrideResult] = useState(bet.outcome)
+  const [savingOverride, setSavingOverride] = useState(false)
 
   const isOwner = user?.id === bet.user_id
   const pl = calcProfitLoss(bet)
@@ -255,6 +262,17 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
     } finally {
       setChecking(false)
     }
+  }
+
+  const handleSaveOverride = async () => {
+    setSavingOverride(true)
+    await supabase
+      .from('bets')
+      .update({ outcome: overrideResult, updated_at: new Date().toISOString() })
+      .eq('id', bet.id)
+    setSavingOverride(false)
+    setOverridingOutcome(false)
+    onUpdate?.(bet.id)
   }
 
   const handleResultScreenshot = async (e) => {
@@ -416,6 +434,17 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
               </button>
             </>
           )}
+          {profile?.is_admin && (
+            <button
+              onClick={() => {
+                setOverrideResult(bet.outcome)
+                setOverridingOutcome((v) => !v)
+              }}
+              className="text-xs text-slate-400 hover:text-yellow-400 transition-colors"
+            >
+              Override
+            </button>
+          )}
         </div>
       </div>
 
@@ -439,6 +468,49 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
           }`}
         >
           {checkMsg.text}
+        </div>
+      )}
+
+      {/* Admin outcome override UI */}
+      {overridingOutcome && (
+        <div className="bg-slate-900/80 rounded-lg px-3 py-3 space-y-3 border border-yellow-500/20">
+          <p className="text-xs text-yellow-400 font-semibold">Override outcome</p>
+          <div className="flex flex-wrap gap-2">
+            {OVERRIDE_OUTCOMES.map((o) => (
+              <button
+                key={o}
+                onClick={() => setOverrideResult(o)}
+                className={`text-xs px-2.5 py-1 rounded border capitalize transition-colors ${
+                  overrideResult === o
+                    ? o === 'won'
+                      ? 'bg-green-500/20 text-green-400 border-green-500/30 font-bold'
+                      : o === 'lost'
+                      ? 'bg-red-500/20 text-red-400 border-red-500/30 font-bold'
+                      : o === 'void'
+                      ? 'bg-slate-500/20 text-slate-300 border-slate-500/30 font-bold'
+                      : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30 font-bold'
+                    : 'border-slate-600 text-slate-400 hover:text-white'
+                }`}
+              >
+                {o}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSaveOverride}
+              disabled={savingOverride}
+              className="text-xs bg-green-500 hover:bg-green-400 text-white font-semibold rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+            >
+              {savingOverride ? 'Saving...' : 'Confirm'}
+            </button>
+            <button
+              onClick={() => setOverridingOutcome(false)}
+              className="text-xs border border-slate-600 text-slate-400 hover:text-white rounded-lg px-3 py-1.5 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 

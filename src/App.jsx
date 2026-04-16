@@ -9,6 +9,8 @@ import EditBet from './pages/EditBet'
 import Profile from './pages/Profile'
 import Leaderboard from './pages/Leaderboard'
 import Insights from './pages/Insights'
+import Teams from './pages/Teams'
+import WeeklyMulti from './pages/WeeklyMulti'
 
 export default function App() {
   const { loading } = useAuth()
@@ -37,6 +39,8 @@ export default function App() {
         <Route path="/profile/:id" element={<Profile />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/insights" element={<Insights />} />
+        <Route path="/teams" element={<Teams />} />
+        <Route path="/weekly-multi" element={<WeeklyMulti />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
