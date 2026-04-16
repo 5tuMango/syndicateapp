@@ -12,6 +12,7 @@ import Insights from './pages/Insights'
 import Teams from './pages/Teams'
 import WeeklyMulti from './pages/WeeklyMulti'
 import AdminPersonas from './pages/AdminPersonas'
+import ClaimPersona from './pages/ClaimPersona'
 
 export default function App() {
   const { loading } = useAuth()
@@ -44,6 +45,15 @@ export default function App() {
         <Route path="/weekly-multi" element={<WeeklyMulti />} />
         <Route path="/admin/personas" element={<AdminPersonas />} />
       </Route>
+      {/* Claim screen: needs auth but not the main Layout */}
+      <Route
+        path="/claim"
+        element={
+          <ProtectedRoute>
+            <ClaimPersona />
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

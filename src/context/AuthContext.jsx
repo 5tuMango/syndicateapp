@@ -6,6 +6,7 @@ const AuthContext = createContext({})
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
+  const [persona, setPersona] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -35,12 +36,12 @@ export function AuthProvider({ children }) {
 
   async function fetchProfile(userId) {
     try {
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
-      setProfile(data)
+      const [profileRes, personaRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', userId).single(),
+        supabase.from('personas').select('*').eq('claimed_by', userId).maybeSingle(),
+      ])
+      setProfile(profileRes.data)
+      setPersona(personaRes.data)
     } finally {
       setLoading(false)
     }
@@ -49,6 +50,7 @@ export function AuthProvider({ children }) {
   const value = {
     user,
     profile,
+    persona,
     loading,
     signIn: (email, password) =>
       supabase.auth.signInWithPassword({ email, password }),
@@ -60,6 +62,8 @@ export function AuthProvider({ children }) {
       }),
     signOut: () => supabase.auth.signOut(),
     refreshProfile: () => user && fetchProfile(user.id),
+    setPersona,
+    persona,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
