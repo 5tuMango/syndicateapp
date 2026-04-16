@@ -40,7 +40,7 @@ function OutcomePill({ outcome }) {
 
 export default function WeeklyMulti() {
   const { user, profile, persona: myPersona } = useAuth()
-  const personaMap = usePersonas()
+  const { byUserId: personaMap } = usePersonas()
   const isAdmin = profile?.is_admin
 
   const [multis, setMultis] = useState([])

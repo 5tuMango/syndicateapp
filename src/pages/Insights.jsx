@@ -23,7 +23,7 @@ const LINE_COLORS = [
 ]
 
 export default function Insights() {
-  const personaMap = usePersonas()
+  const { byUserId: personaMap } = usePersonas()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
   const [weeklyMultis, setWeeklyMultis] = useState([])

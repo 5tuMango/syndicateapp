@@ -192,7 +192,7 @@ const OVERRIDE_OUTCOMES = ['won', 'lost', 'void', 'pending']
 
 export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) {
   const { user, profile } = useAuth()
-  const personaMap = usePersonas()
+  const { byUserId: personaMap, byPersonaId } = usePersonas()
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -208,7 +208,8 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
   const isOwner = user?.id === bet.user_id
   const pl = calcProfitLoss(bet)
   const member = bet.profiles
-  const persona = personaMap[bet.user_id]
+  // Prefer persona_id (explicitly assigned) over user_id lookup
+  const persona = (bet.persona_id && byPersonaId[bet.persona_id]) || personaMap[bet.user_id]
   const displayName = persona
     ? `${persona.emoji} ${persona.nickname}`
     : (member?.full_name || member?.username || 'Unknown')

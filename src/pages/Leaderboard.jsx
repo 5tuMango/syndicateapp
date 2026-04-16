@@ -45,7 +45,7 @@ function calcWeeklyStats(multis) {
 
 export default function Leaderboard() {
   const { user } = useAuth()
-  const personaMap = usePersonas()
+  const { byUserId: personaMap } = usePersonas()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
   const [teams, setTeams] = useState([])
