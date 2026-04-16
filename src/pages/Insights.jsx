@@ -495,7 +495,7 @@ export default function Insights() {
                   ) : (
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <Stat label="Bet Boldness" value={row.betBoldness > 0 ? row.betBoldness.toFixed(0) : '—'} color="text-orange-400" />
+                        <Stat label="Boldness" value={row.betBoldness > 0 ? row.betBoldness.toFixed(0) : '—'} color="text-orange-400" />
                         <Stat label="Risk Profile" value={row.riskProfile > 0 ? row.riskProfile.toFixed(2) : '—'} color="text-purple-400" />
                         <Stat label="Avg Odds" value={row.avgOdds.toFixed(2)} />
                         <Stat label="Avg Stake" value={`$${row.avgStake.toFixed(2)}`} />

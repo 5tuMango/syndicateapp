@@ -12,6 +12,9 @@
     },
     "api/match-weekly-multi.js": {
       "maxDuration": 60
+    },
+    "api/extract-weekly-results.js": {
+      "maxDuration": 60
     }
   }
 }

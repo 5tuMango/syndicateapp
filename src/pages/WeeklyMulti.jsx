@@ -48,6 +48,8 @@ export default function WeeklyMulti() {
   // Create multi modal
   const [showCreate, setShowCreate] = useState(false)
   const [weekLabel, setWeekLabel] = useState('')
+  const [newStake, setNewStake] = useState('')
+  const [createError, setCreateError] = useState('')
   const [addAllOnCreate, setAddAllOnCreate] = useState(true)
   const [creating, setCreating] = useState(false)
 
@@ -64,6 +66,10 @@ export default function WeeklyMulti() {
 
   // Inline pick editing: { [legId]: currentValue }
   const [inlinePicks, setInlinePicks] = useState({})
+
+  // Inline stake editing: { [multiId]: currentValue }
+  const [inlineStakes, setInlineStakes] = useState({})
+  const [stakeMsg, setStakeMsg] = useState({}) // { [multiId]: { ok: bool, text: string } }
 
   // Upload bet slip + match preview
   const [slipUploading, setSlipUploading] = useState(false)
@@ -124,11 +130,19 @@ export default function WeeklyMulti() {
   async function handleCreateMulti() {
     if (!weekLabel.trim()) return
     setCreating(true)
+    setCreateError('')
+    const insertData = { week_label: weekLabel.trim(), created_by: user.id }
+    if (newStake !== '') insertData.stake = parseFloat(newStake) || 0
     const { data: multi, error } = await supabase
       .from('weekly_multis')
-      .insert({ week_label: weekLabel.trim(), created_by: user.id })
+      .insert(insertData)
       .select()
       .single()
+    if (error) {
+      setCreateError(error.message)
+      setCreating(false)
+      return
+    }
     if (!error && multi) {
       // Auto-add all registered members as leg slots
       if (addAllOnCreate && profiles.length > 0) {
@@ -155,6 +169,8 @@ export default function WeeklyMulti() {
     setCreating(false)
     setShowCreate(false)
     setWeekLabel('')
+    setNewStake('')
+    setCreateError('')
     load()
   }
 
@@ -216,6 +232,19 @@ export default function WeeklyMulti() {
       raw_pick: value.trim() || null,
       updated_at: new Date().toISOString(),
     }).eq('id', leg.id)
+    load()
+  }
+
+  async function saveInlineStake(multi, rawValue) {
+    const val = parseFloat(rawValue) || 0
+    if (val === parseFloat(multi.stake || 0)) return
+    const { error } = await supabase.from('weekly_multis').update({ stake: val }).eq('id', multi.id)
+    if (error) {
+      setStakeMsg(m => ({ ...m, [multi.id]: { ok: false, text: error.message } }))
+      return
+    }
+    setStakeMsg(m => ({ ...m, [multi.id]: { ok: true, text: 'Saved' } }))
+    setTimeout(() => setStakeMsg(m => ({ ...m, [multi.id]: null })), 2000)
     load()
   }
 
@@ -393,6 +422,10 @@ export default function WeeklyMulti() {
             const allResolved = legs.length > 0 && legs.every((l) => l.outcome !== 'pending')
             const wonCount = legs.filter((l) => l.outcome === 'won').length
             const lostCount = legs.filter((l) => l.outcome === 'lost').length
+            const nonVoidLegs = legs.filter((l) => l.outcome !== 'void')
+            const multiWon = nonVoidLegs.length > 0 && nonVoidLegs.every((l) => l.outcome === 'won')
+            const stake = parseFloat(multi.stake || 0)
+            const winnings = multiWon && odds != null ? stake * odds : null
 
             return (
               <div
@@ -413,6 +446,36 @@ export default function WeeklyMulti() {
                         Combined odds:{' '}
                         <span className="text-white font-semibold">{odds.toFixed(2)}</span>
                       </span>
+                    )}
+                    {/* Stake — editable by admin */}
+                    <span className="text-slate-400 text-xs flex items-center gap-1">
+                      Stake:{' '}
+                      {isAdmin ? (
+                        <>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={inlineStakes[multi.id] ?? (multi.stake > 0 ? multi.stake : '')}
+                            onChange={(e) => setInlineStakes(s => ({ ...s, [multi.id]: e.target.value }))}
+                            onBlur={(e) => saveInlineStake(multi, e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+                            placeholder="0"
+                            className="w-16 bg-slate-700 border border-slate-600 focus:border-green-500 rounded px-1.5 py-0.5 text-white text-xs focus:outline-none"
+                          />
+                          {stakeMsg[multi.id] && (
+                            <span className={stakeMsg[multi.id].ok ? 'text-green-400' : 'text-red-400'}>
+                              {stakeMsg[multi.id].text}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-white font-semibold">${stake.toFixed(2)}</span>
+                      )}
+                    </span>
+                    {/* Winnings when won */}
+                    {winnings != null && (
+                      <span className="text-green-400 font-bold text-sm">+${winnings.toFixed(2)}</span>
                     )}
                     {multi.status === 'resulted' && (
                       <span className="text-xs text-slate-400">
@@ -564,6 +627,18 @@ export default function WeeklyMulti() {
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-green-500"
               />
             </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Stake ($)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={newStake}
+                onChange={(e) => setNewStake(e.target.value)}
+                placeholder="e.g. 20"
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-green-500"
+              />
+            </div>
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -575,6 +650,9 @@ export default function WeeklyMulti() {
                 Auto-add all {profiles.length} members as leg slots
               </span>
             </label>
+            {createError && (
+              <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{createError}</p>
+            )}
             <div className="flex gap-3">
               <button
                 onClick={handleCreateMulti}
@@ -584,7 +662,7 @@ export default function WeeklyMulti() {
                 {creating ? 'Creating...' : 'Create'}
               </button>
               <button
-                onClick={() => { setShowCreate(false); setWeekLabel('') }}
+                onClick={() => { setShowCreate(false); setWeekLabel(''); setNewStake(''); setCreateError('') }}
                 className="flex-1 border border-slate-600 text-slate-300 hover:text-white rounded-lg py-2 text-sm transition-colors"
               >
                 Cancel

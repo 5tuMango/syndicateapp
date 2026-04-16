@@ -78,6 +78,10 @@ createServer(async (req, res) => {
       console.log('→ POST /api/match-weekly-multi')
       const mod = await import(`./api/match-weekly-multi.js?t=${Date.now()}`)
       await runHandler(mod, req, res, body)
+    } else if (req.url === '/api/extract-weekly-results' && req.method === 'POST') {
+      console.log('→ POST /api/extract-weekly-results')
+      const mod = await import(`./api/extract-weekly-results.js?t=${Date.now()}`)
+      await runHandler(mod, req, res, body)
     } else {
       res.writeHead(404)
       res.end('Not found')
