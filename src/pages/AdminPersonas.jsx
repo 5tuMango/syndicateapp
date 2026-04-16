@@ -19,12 +19,17 @@ export default function AdminPersonas() {
 
   async function load() {
     setLoading(true)
-    // Join to auth.users via claimed_by to get email — use profiles table instead
-    const { data } = await supabase
-      .from('personas')
-      .select('*, profiles:claimed_by(id, full_name, username)')
-      .order('created_at')
-    setPersonas(data || [])
+    const [personasRes, profilesRes] = await Promise.all([
+      supabase.from('personas').select('*').order('created_at'),
+      supabase.from('profiles').select('id, full_name, username'),
+    ])
+    const profileMap = {}
+    for (const p of (profilesRes.data || [])) profileMap[p.id] = p
+    const merged = (personasRes.data || []).map((p) => ({
+      ...p,
+      profile: p.claimed_by ? profileMap[p.claimed_by] : null,
+    }))
+    setPersonas(merged)
     setLoading(false)
   }
 
@@ -149,7 +154,7 @@ export default function AdminPersonas() {
                     <div className="text-xs mt-0.5">
                       {claimed ? (
                         <span className="text-green-400">
-                          Claimed by {displayName(p.profiles)}
+                          Claimed by {displayName(p.profile)}
                         </span>
                       ) : (
                         <span className="text-slate-500">Unclaimed</span>
