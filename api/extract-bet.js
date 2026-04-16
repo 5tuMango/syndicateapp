@@ -33,7 +33,7 @@ export default async function handler(req, res) {
 ${multipleScreenshots ? `IMPORTANT — MULTIPLE SCREENSHOTS:
 These screenshots are all from the SAME bet slip. They are scrolled views of the same screen, so some content (e.g. the bet header, odds, stake) may only appear in one screenshot while the legs are spread across multiple. Treat them as one continuous scrolled view. Combine all visible information across all screenshots to produce a single complete result — do NOT create duplicate legs if the same leg appears in more than one screenshot.
 If a screenshot appears to start mid-bet (e.g. no header visible), assume it is a continuation of the same bet shown in the other screenshots.
-CRITICAL — player/selection context carries across screenshots: In Sportsbet's SGM layout, a player's name appears as a heading and their individual stat markets (e.g. "2+ Goals", "20+ Disposals") are indented below it. If a stat market appears at the TOP of a screenshot with no player name directly above it, look at the BOTTOM of the previous screenshot — the player name will be there. Always associate the stat with that player (e.g. "Isaac Heeney 2+ Goals", not just "2+ Goals").
+CRITICAL — player context carries across screenshots: In Sportsbet's SGM layout, a player's name appears as a bold heading and their stat markets (e.g. "2+ Goals", "20+ Disposals") are listed below it. These stats are cut off at screenshot boundaries. If a stat line appears at the very TOP of a screenshot with no player name immediately above it, the player name is at the BOTTOM of the previous screenshot. You MUST scroll back mentally and use that player name in the selection — e.g. if "Isaac Heeney" is last visible in screenshot 1 and "2+ Goals" is first in screenshot 2, the selection is "Isaac Heeney 2+ Goals". Never output a bare stat like "2+ Goals" without the player name.
 
 ` : ''}Extract all visible bet details and return them as a single valid JSON object. Use these exact field names:
 
@@ -51,18 +51,20 @@ CRITICAL — player/selection context carries across screenshots: In Sportsbet's
   - "sport": the sport for this specific leg — one of: AFL, NRL, Cricket, Horse Racing, Greyhounds, Tennis, Soccer, NBA, NFL, Boxing, MMA, Rugby Union, Golf, Other
   - "event_time": the scheduled start time for this leg in AEST, format "YYYY-MM-DDTHH:MM" 24-hour (e.g. "${currentYear}-04-11T13:15"). Use ${currentYear} as the year unless a different year is clearly visible in the screenshot.
   - "event": the match or event name for this leg (string)
-  - "description": the market type e.g. "Head to Head", "Win-Draw-Win", "Pick Your Line", "Player Goals" (string)
-  - "selection": the specific pick e.g. "Chelsea", "Essendon (+40.5)", "Kysaiah Pickett 2+ Goals" (string)
+  - "description": the market type e.g. "Head to Head", "Win-Draw-Win", "Pick Your Line", "Player Goals", "Player Disposals" (string)
+  - "selection": the specific pick. CRITICAL FOR PLAYER PROPS: In Sportsbet's SGM layout, player props show as a player name heading (e.g. "Isaac Heeney") followed by indented stat lines (e.g. "2+ Goals", "20+ Disposals"). Each stat line is a separate leg. The "selection" for each stat leg MUST include the player name — e.g. "Isaac Heeney 2+ Goals", "Isaac Heeney 20+ Disposals". NEVER use just "2+ Goals" alone as the selection — always prepend the player name.
   - "odds": decimal odds for this leg as a number — use null if this leg is part of an SGM group (SGM sub-legs have no individual odds)
   - "leg_group": integer (1, 2, 3…) if this leg belongs to an SGM within the multi, otherwise null. All sub-legs of the same SGM share the same leg_group number.
   - "group_odds": the combined decimal odds of the SGM group (e.g. 3.20) — include on every leg that has a leg_group. Null for standalone legs.
 
-  Example for a multi containing an SGM @ 3.20 (Essendon v Melbourne) plus a standalone horse race @ 1.40:
+  Example for a multi containing an SGM @ 3.20 (Essendon v Melbourne, with two player props) plus a standalone horse race @ 1.40:
   [
     { "sport": "AFL", "event_time": "${currentYear}-04-11T19:35", "event": "Essendon v Melbourne", "description": "Pick Your Line", "selection": "Essendon (+40.5)", "odds": null, "leg_group": 1, "group_odds": 3.20 },
     { "sport": "AFL", "event_time": "${currentYear}-04-11T19:35", "event": "Essendon v Melbourne", "description": "Player Goals", "selection": "Kysaiah Pickett 2+ Goals", "odds": null, "leg_group": 1, "group_odds": 3.20 },
+    { "sport": "AFL", "event_time": "${currentYear}-04-11T19:35", "event": "Essendon v Melbourne", "description": "Player Disposals", "selection": "Kysaiah Pickett 20+ Disposals", "odds": null, "leg_group": 1, "group_odds": 3.20 },
     { "sport": "Horse Racing", "event_time": "${currentYear}-04-11T13:15", "event": "4. Amazake (9) — Caulfield Race 7", "description": "Place", "selection": "4. Amazake (9)", "odds": 1.40, "leg_group": null, "group_odds": null }
   ]
+  Note how BOTH player prop legs include the player name "Kysaiah Pickett" in the selection field — never just "2+ Goals" or "20+ Disposals" alone.
 
 Rules:
 - Only include a field if you can clearly read it from the screenshot${multipleScreenshots ? 's' : ''}
