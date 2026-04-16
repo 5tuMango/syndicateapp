@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import BetCard from '../components/BetCard'
 import WeeklyMultiCard from '../components/WeeklyMultiCard'
 import FilterBar from '../components/FilterBar'
-import { calcProfitLoss, formatCurrency, profitLossColor } from '../lib/utils'
+import { calcProfitLoss, formatCurrency, profitLossColor, sortBetsByActivity, betLastEventTime } from '../lib/utils'
 
 function calcWeeklyStats(multis) {
   const results = multis.map((m) => {
@@ -132,11 +132,31 @@ export default function Dashboard() {
     if (data) setWeeklyMultis(data)
   }
 
-  // Merge bets + weekly multis into a single sorted feed
+  // Merge bets + weekly multis into a single feed sorted by activity
+  // Pending items with furthest event time sit at the top; resolved below
   const feedItems = useMemo(() => {
-    const betItems = filteredBets.map(b => ({ type: 'bet', key: b.id, ts: b.created_at, data: b }))
-    const weeklyItems = weeklyMultis.map(m => ({ type: 'weekly', key: m.id, ts: m.created_at, data: m }))
-    return [...betItems, ...weeklyItems].sort((a, b) => b.ts.localeCompare(a.ts))
+    // Treat weekly multis like bets for sorting: use created_at as fallback time
+    const allItems = [
+      ...filteredBets.map(b => ({ type: 'bet', key: b.id, data: b, outcome: b.outcome, lastTime: betLastEventTime(b), date: b.date, created_at: b.created_at })),
+      ...weeklyMultis.map(m => {
+        const legs = m.weekly_multi_legs || []
+        const outcome = legs.length === 0 ? 'pending' : legs.every(l => l.outcome === 'won' || l.outcome === 'void') && legs.some(l => l.outcome === 'won') ? 'won' : legs.some(l => l.outcome === 'lost') ? 'lost' : 'pending'
+        return { type: 'weekly', key: m.id, data: m, outcome, lastTime: null, date: m.created_at?.slice(0, 10), created_at: m.created_at }
+      }),
+    ]
+    return allItems.sort((a, b) => {
+      const aPending = a.outcome === 'pending'
+      const bPending = b.outcome === 'pending'
+      if (aPending && !bPending) return -1
+      if (!aPending && bPending) return 1
+      if (aPending) {
+        if (a.lastTime && b.lastTime) return b.lastTime - a.lastTime
+        if (a.lastTime) return -1
+        if (b.lastTime) return 1
+        return b.created_at.localeCompare(a.created_at)
+      }
+      return (b.date || '').localeCompare(a.date || '') || b.created_at.localeCompare(a.created_at)
+    })
   }, [filteredBets, weeklyMultis])
 
   return (

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import BetCard from '../components/BetCard'
 import FilterBar from '../components/FilterBar'
-import { calcProfitLoss, formatCurrency, profitLossColor } from '../lib/utils'
+import { calcProfitLoss, formatCurrency, profitLossColor, sortBetsByActivity } from '../lib/utils'
 
 export default function Profile() {
   const { id } = useParams()
@@ -29,17 +29,15 @@ export default function Profile() {
       supabase
         .from('bets')
         .select('*, profiles(id, username, full_name), bet_legs(*)')
-        .eq('user_id', id)
-        .order('date', { ascending: false })
-        .order('created_at', { ascending: false }),
+        .eq('user_id', id),
     ])
     setProfile(profileRes.data)
-    setBets(betsRes.data || [])
+    setBets(sortBetsByActivity(betsRes.data || []))
     setLoading(false)
   }
 
   const filteredBets = useMemo(() => {
-    return bets.filter((bet) => {
+    const filtered = bets.filter((bet) => {
       if (filters.sport && bet.sport !== filters.sport) return false
       if (filters.bet_type && bet.bet_type !== filters.bet_type) return false
       if (filters.outcome && bet.outcome !== filters.outcome) return false
@@ -47,6 +45,7 @@ export default function Profile() {
       if (filters.date_to && bet.date > filters.date_to) return false
       return true
     })
+    return sortBetsByActivity(filtered)
   }, [bets, filters])
 
   const stats = useMemo(() => {

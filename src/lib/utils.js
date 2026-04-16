@@ -83,3 +83,41 @@ export const outcomeBadge = (outcome) => {
       return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
   }
 }
+
+// Returns the latest event_time across a bet and all its legs (as ms timestamp)
+// Used to sort bets by when they are likely to be resolved
+export function betLastEventTime(bet) {
+  const times = []
+  if (bet.event_time) times.push(new Date(bet.event_time).getTime())
+  for (const leg of (bet.bet_legs || [])) {
+    if (leg.event_time) times.push(new Date(leg.event_time).getTime())
+  }
+  return times.length > 0 ? Math.max(...times) : null
+}
+
+// Sort bets: pending first (latest event time at top), then resolved by date desc
+export function sortBetsByActivity(bets) {
+  return [...bets].sort((a, b) => {
+    const aPending = a.outcome === 'pending'
+    const bPending = b.outcome === 'pending'
+
+    // Resolved bets go below pending
+    if (aPending && !bPending) return -1
+    if (!aPending && bPending) return 1
+
+    const aTime = betLastEventTime(a)
+    const bTime = betLastEventTime(b)
+
+    if (aPending) {
+      // Both pending: furthest event time at top (DESC)
+      if (aTime && bTime) return bTime - aTime
+      if (aTime) return -1  // a has time, b doesn't → a goes first
+      if (bTime) return 1
+      // Neither has event time: most recently created first
+      return b.created_at.localeCompare(a.created_at)
+    } else {
+      // Both resolved: most recent date first
+      return b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at)
+    }
+  })
+}
