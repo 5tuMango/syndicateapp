@@ -45,7 +45,7 @@ function calcWeeklyStats(multis) {
 
 export default function Leaderboard() {
   const { user } = useAuth()
-  const { byUserId: personaMap } = usePersonas()
+  const { byUserId: personaMap, byPersonaId } = usePersonas()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
   const [teams, setTeams] = useState([])
@@ -59,7 +59,7 @@ export default function Leaderboard() {
 
   async function fetchData() {
     const [betsRes, membersRes, teamsRes, weeklyRes] = await Promise.all([
-      supabase.from('bets').select('user_id, stake, odds, outcome, is_bonus_bet, bet_return_value'),
+      supabase.from('bets').select('user_id, persona_id, stake, odds, outcome, is_bonus_bet, bet_return_value'),
       supabase.from('profiles').select('id, username, full_name, team_id').order('full_name'),
       supabase.from('teams').select('*').order('created_at'),
       supabase.from('weekly_multis').select('*, weekly_multi_legs(*)'),
@@ -95,20 +95,31 @@ export default function Leaderboard() {
     return { total: memberBets.length, won, lost, pending, voided, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, pl, staked, winnings, betBoldness, riskProfile, betReturnsEarned, bonusBetsUsed }
   }
 
+  // Match a bet to a member: use persona_id if set, otherwise fall back to user_id
+  function betBelongsTo(bet, userId) {
+    if (bet.persona_id) {
+      return byPersonaId[bet.persona_id]?.claimed_by === userId
+    }
+    return bet.user_id === userId
+  }
+
   const leaderboard = useMemo(() => {
     return members
-      .map((member) => ({ ...member, ...calcStats(bets.filter((b) => b.user_id === member.id)) }))
+      .map((member) => ({ ...member, ...calcStats(bets.filter((b) => betBelongsTo(b, member.id))) }))
       .sort((a, b) => b[sortKey] - a[sortKey])
-  }, [bets, members, sortKey])
+  }, [bets, members, sortKey, byPersonaId])
 
   const teamLeaderboard = useMemo(() => {
     return teams.map((team) => {
       const teamMembers = members.filter((m) => m.team_id === team.id)
       const memberIds = new Set(teamMembers.map((m) => m.id))
-      const teamBets = bets.filter((b) => memberIds.has(b.user_id))
+      const teamBets = bets.filter((b) => {
+        const ownerId = bet => byPersonaId[bet.persona_id]?.claimed_by || bet.user_id
+        return memberIds.has(ownerId(b))
+      })
       return { ...team, memberCount: teamMembers.length, ...calcStats(teamBets) }
     }).sort((a, b) => b[sortKey] - a[sortKey])
-  }, [bets, members, teams, sortKey])
+  }, [bets, members, teams, sortKey, byPersonaId])
 
   const individStats = useMemo(() => {
     const pl = bets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
