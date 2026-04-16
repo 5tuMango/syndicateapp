@@ -59,8 +59,12 @@ export default function WeeklyMulti() {
 
   // Enter/edit pick modal
   const [editingLeg, setEditingLeg] = useState(null) // leg object
-  const [legForm, setLegForm] = useState({ event: '', description: '', selection: '', odds: '' })
+  const [legForm, setLegForm] = useState({ raw_pick: '', event: '', description: '', selection: '', odds: '' })
   const [savingLeg, setSavingLeg] = useState(false)
+
+  // Upload bet slip + match preview
+  const [slipUploading, setSlipUploading] = useState(false)
+  const [slipPreview, setSlipPreview] = useState(null) // { multiId, matches: [] }
 
   // Set outcome modal
   const [overrideLeg, setOverrideLeg] = useState(null) // leg object
@@ -174,6 +178,7 @@ export default function WeeklyMulti() {
   function openEditLeg(leg) {
     setEditingLeg(leg)
     setLegForm({
+      raw_pick: leg.raw_pick || '',
       event: leg.event || '',
       description: leg.description || '',
       selection: leg.selection || '',
@@ -187,6 +192,7 @@ export default function WeeklyMulti() {
     await supabase
       .from('weekly_multi_legs')
       .update({
+        raw_pick: legForm.raw_pick.trim() || null,
         event: legForm.event.trim() || null,
         description: legForm.description.trim() || null,
         selection: legForm.selection.trim() || null,
@@ -196,6 +202,52 @@ export default function WeeklyMulti() {
       .eq('id', editingLeg.id)
     setSavingLeg(false)
     setEditingLeg(null)
+    load()
+  }
+
+  // ── Upload bet slip + match ────────────────────────────────────────────────
+  async function handleSlipUpload(multiId, e) {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    setSlipUploading(true)
+    try {
+      const images = await Promise.all(
+        files.map(f => new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve({ imageBase64: reader.result.split(',')[1], mimeType: f.type })
+          reader.onerror = reject
+          reader.readAsDataURL(f)
+        }))
+      )
+      const res = await fetch('/api/match-weekly-multi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images, multiId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Server error')
+      setSlipPreview({ multiId, matches: data.matches })
+    } catch (err) {
+      alert('Error reading bet slip: ' + err.message)
+    } finally {
+      setSlipUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  async function handleConfirmSlip() {
+    if (!slipPreview) return
+    const matched = slipPreview.matches.filter(m => m.matched && m.leg_id)
+    for (const m of matched) {
+      await supabase.from('weekly_multi_legs').update({
+        event: m.event || null,
+        description: m.description || null,
+        selection: m.selection || null,
+        odds: m.odds || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', m.leg_id)
+    }
+    setSlipPreview(null)
     load()
   }
 
@@ -353,7 +405,7 @@ export default function WeeklyMulti() {
                     )}
                   </div>
                   {isAdmin && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3 flex-wrap">
                       {multi.status === 'open' && allResolved && legs.length > 0 && (
                         <button
                           onClick={() => markResulted(multi)}
@@ -361,6 +413,19 @@ export default function WeeklyMulti() {
                         >
                           Mark Resulted
                         </button>
+                      )}
+                      {multi.status === 'open' && (
+                        <label className={`text-xs cursor-pointer transition-colors ${slipUploading ? 'text-slate-500 cursor-wait' : 'text-slate-400 hover:text-blue-400'}`}>
+                          {slipUploading ? 'Reading slip…' : '📋 Upload Bet Slip'}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            disabled={slipUploading}
+                            onChange={(e) => handleSlipUpload(multi.id, e)}
+                          />
+                        </label>
                       )}
                       <button
                         onClick={() => handleDeleteMulti(multi)}
@@ -382,7 +447,8 @@ export default function WeeklyMulti() {
                         : leg.assigned_name || 'Unknown'
                       const canEdit =
                         (isMyLeg || isAdmin) && multi.status === 'open'
-                      const hasPickEntered = leg.event || leg.selection
+                      const hasFullDetails = leg.event || leg.selection
+                      const hasPickEntered = hasFullDetails || leg.raw_pick
 
                       return (
                         <div
@@ -416,7 +482,7 @@ export default function WeeklyMulti() {
 
                           {/* Pick details */}
                           <div className="text-sm text-slate-400">
-                            {hasPickEntered ? (
+                            {hasFullDetails ? (
                               <>
                                 {leg.event && (
                                   <span className="text-slate-200">{leg.event}</span>
@@ -431,6 +497,8 @@ export default function WeeklyMulti() {
                                   </span>
                                 )}
                               </>
+                            ) : leg.raw_pick ? (
+                              <span className="text-slate-300 italic">{leg.raw_pick}</span>
                             ) : isMyLeg ? (
                               <span className="italic text-slate-500 text-xs">
                                 Tap &apos;Enter pick&apos; to add your selection
@@ -588,24 +656,52 @@ export default function WeeklyMulti() {
       {editingLeg && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 w-full max-w-sm space-y-4">
-            <h3 className="text-white font-semibold">Enter Pick</h3>
-            {[
-              { key: 'event', label: 'Event', placeholder: 'e.g. Collingwood vs Carlton' },
-              { key: 'description', label: 'Market', placeholder: 'e.g. Head to head' },
-              { key: 'selection', label: 'Selection', placeholder: 'e.g. Collingwood' },
-              { key: 'odds', label: 'Odds', placeholder: 'e.g. 1.85', type: 'number' },
-            ].map(({ key, label, placeholder, type }) => (
-              <div key={key}>
-                <label className="block text-xs text-slate-400 mb-1">{label}</label>
-                <input
-                  type={type || 'text'}
-                  value={legForm[key]}
-                  onChange={(e) => setLegForm((f) => ({ ...f, [key]: e.target.value }))}
-                  placeholder={placeholder}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-green-500"
-                />
-              </div>
-            ))}
+            <h3 className="text-white font-semibold">
+              {isAdmin ? 'Edit Pick' : 'Enter Your Pick'}
+            </h3>
+
+            {/* Raw pick — everyone */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Your pick</label>
+              <input
+                type="text"
+                value={legForm.raw_pick}
+                onChange={(e) => setLegForm((f) => ({ ...f, raw_pick: e.target.value }))}
+                placeholder='e.g. "Cats -16.5" or "Storm h2h"'
+                autoFocus
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-green-500"
+              />
+              {!isAdmin && (
+                <p className="text-xs text-slate-500 mt-1">
+                  Keep it short — just the team and line/market. Full details are filled in when the bet slip is uploaded.
+                </p>
+              )}
+            </div>
+
+            {/* Full details — admin only */}
+            {isAdmin && (
+              <>
+                <p className="text-xs text-slate-500 -mt-2">Full details (filled automatically when bet slip is uploaded)</p>
+                {[
+                  { key: 'event', label: 'Event', placeholder: 'e.g. Collingwood vs Carlton' },
+                  { key: 'description', label: 'Market', placeholder: 'e.g. Head to Head' },
+                  { key: 'selection', label: 'Selection', placeholder: 'e.g. Collingwood (+35.5)' },
+                  { key: 'odds', label: 'Odds', placeholder: 'e.g. 1.32', type: 'number' },
+                ].map(({ key, label, placeholder, type }) => (
+                  <div key={key}>
+                    <label className="block text-xs text-slate-400 mb-1">{label}</label>
+                    <input
+                      type={type || 'text'}
+                      value={legForm[key]}
+                      onChange={(e) => setLegForm((f) => ({ ...f, [key]: e.target.value }))}
+                      placeholder={placeholder}
+                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-green-500"
+                    />
+                  </div>
+                ))}
+              </>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={handleSaveLeg}
@@ -616,6 +712,59 @@ export default function WeeklyMulti() {
               </button>
               <button
                 onClick={() => setEditingLeg(null)}
+                className="flex-1 border border-slate-600 text-slate-300 hover:text-white rounded-lg py-2 text-sm transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bet slip match preview */}
+      {slipPreview && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 w-full max-w-lg space-y-4">
+            <h3 className="text-white font-semibold">Confirm Bet Slip Matches</h3>
+            <p className="text-xs text-slate-500">Review how Claude matched each pick to the bet slip. Unmatched legs can be edited manually after confirming.</p>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {slipPreview.matches.map((m, i) => (
+                <div
+                  key={i}
+                  className={`p-3 rounded-lg ${m.matched ? 'bg-slate-900/70' : 'bg-red-900/20 border border-red-500/20'}`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm font-semibold text-slate-200 shrink-0">{m.member_name}</span>
+                      {m.raw_pick && (
+                        <span className="text-slate-500 text-xs italic truncate">"{m.raw_pick}"</span>
+                      )}
+                    </div>
+                    {m.matched
+                      ? <span className="text-green-400 text-xs shrink-0">✓ Matched</span>
+                      : <span className="text-red-400 text-xs shrink-0">✗ No match</span>
+                    }
+                  </div>
+                  {m.matched && (
+                    <div className="text-xs text-slate-400 space-x-1">
+                      {m.event && <span className="text-slate-300">{m.event}</span>}
+                      {m.description && <span>· {m.description}</span>}
+                      {m.selection && <span className="text-green-400">· {m.selection}</span>}
+                      {m.odds && <span className="text-white font-medium">@ {parseFloat(m.odds).toFixed(2)}</span>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleConfirmSlip}
+                className="flex-1 bg-green-500 hover:bg-green-400 text-white font-semibold rounded-lg py-2 text-sm transition-colors"
+              >
+                Confirm & Save
+              </button>
+              <button
+                onClick={() => setSlipPreview(null)}
                 className="flex-1 border border-slate-600 text-slate-300 hover:text-white rounded-lg py-2 text-sm transition-colors"
               >
                 Cancel
