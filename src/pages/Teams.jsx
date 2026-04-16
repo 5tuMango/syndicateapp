@@ -41,6 +41,11 @@ export default function Teams() {
   const [bets, setBets] = useState([])
   const [loading, setLoading] = useState(true)
 
+  // Team name editing
+  const [editingTeamId, setEditingTeamId] = useState(null)
+  const [editingTeamName, setEditingTeamName] = useState('')
+  const [savingTeamName, setSavingTeamName] = useState(false)
+
   // Modal state
   const [movingMember, setMovingMember] = useState(null) // profile object
   const [saving, setSaving] = useState(false)
@@ -84,6 +89,15 @@ export default function Teams() {
       : null
 
   const unassigned = profiles.filter((p) => !p.team_id)
+
+  async function saveTeamName(teamId) {
+    if (!editingTeamName.trim()) return
+    setSavingTeamName(true)
+    await supabase.from('teams').update({ name: editingTeamName.trim() }).eq('id', teamId)
+    setSavingTeamName(false)
+    setEditingTeamId(null)
+    load()
+  }
 
   async function assignToTeam(profileId, teamId) {
     setSaving(true)
@@ -155,20 +169,62 @@ export default function Teams() {
           const isLeading = leadingTeam?.id === team.id && teamsWithStats.length > 1
           const { members, betCount, totalPL, winRate } = team.stats
 
+          const canEditName = isAdmin || profile?.team_id === team.id
+          const isEditingThis = editingTeamId === team.id
+
           return (
             <div
               key={team.id}
               className={`bg-slate-800 rounded-xl border p-5 space-y-4 ${colors.border}`}
             >
               {/* Team header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h2 className={`text-lg font-bold ${colors.text}`}>{team.name}</h2>
-                  {isLeading && <span className="text-lg">🏆</span>}
-                </div>
-                <span className={`text-xs px-2 py-0.5 rounded border ${colors.border} ${colors.text} ${colors.bg}`}>
-                  {members.length} members
-                </span>
+              <div className="flex items-center justify-between gap-2">
+                {isEditingThis ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <input
+                      autoFocus
+                      value={editingTeamName}
+                      onChange={(e) => setEditingTeamName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveTeamName(team.id)
+                        if (e.key === 'Escape') setEditingTeamId(null)
+                      }}
+                      className="flex-1 bg-slate-700 border border-slate-500 rounded-lg px-2 py-1 text-white text-sm font-bold focus:outline-none focus:border-green-500"
+                    />
+                    <button
+                      onClick={() => saveTeamName(team.id)}
+                      disabled={savingTeamName}
+                      className="text-xs text-green-400 hover:text-green-300 disabled:opacity-50"
+                    >
+                      {savingTeamName ? '...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => setEditingTeamId(null)}
+                      className="text-xs text-slate-500 hover:text-slate-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <h2 className={`text-lg font-bold ${colors.text}`}>{team.name}</h2>
+                    {isLeading && <span className="text-lg">🏆</span>}
+                    {canEditName && (
+                      <button
+                        onClick={() => { setEditingTeamId(team.id); setEditingTeamName(team.name) }}
+                        className="text-slate-600 hover:text-slate-400 transition-colors"
+                        title="Rename team"
+                      >
+                        ✎
+                      </button>
+                    )}
+                  </div>
+                )}
+                {!isEditingThis && (
+                  <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${colors.border} ${colors.text} ${colors.bg}`}>
+                    {members.length} members
+                  </span>
+                )}
               </div>
 
               {/* Stats */}
