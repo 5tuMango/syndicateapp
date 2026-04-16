@@ -33,6 +33,7 @@ export default async function handler(req, res) {
 ${multipleScreenshots ? `IMPORTANT — MULTIPLE SCREENSHOTS:
 These screenshots are all from the SAME bet slip. They are scrolled views of the same screen, so some content (e.g. the bet header, odds, stake) may only appear in one screenshot while the legs are spread across multiple. Treat them as one continuous scrolled view. Combine all visible information across all screenshots to produce a single complete result — do NOT create duplicate legs if the same leg appears in more than one screenshot.
 If a screenshot appears to start mid-bet (e.g. no header visible), assume it is a continuation of the same bet shown in the other screenshots.
+CRITICAL — player/selection context carries across screenshots: In Sportsbet's SGM layout, a player's name appears as a heading and their individual stat markets (e.g. "2+ Goals", "20+ Disposals") are indented below it. If a stat market appears at the TOP of a screenshot with no player name directly above it, look at the BOTTOM of the previous screenshot — the player name will be there. Always associate the stat with that player (e.g. "Isaac Heeney 2+ Goals", not just "2+ Goals").
 
 ` : ''}Extract all visible bet details and return them as a single valid JSON object. Use these exact field names:
 
