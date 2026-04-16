@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { formatCurrency, profitLossColor } from '../lib/utils'
+import { usePersonas } from '../hooks/usePersonas'
 
 function combinedOdds(legs) {
   const entered = legs.filter(l => l.odds != null && parseFloat(l.odds) > 0)
@@ -26,6 +27,7 @@ function outcomeBadgeClass(outcome) {
 }
 
 export default function WeeklyMultiCard({ multi, onUpdate }) {
+  const { byUserId, byPersonaId } = usePersonas()
   const [expanded, setExpanded] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [msg, setMsg] = useState(null) // { type: 'ok'|'warn'|'info', text }
@@ -165,11 +167,13 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
       {expanded && (
         <div className="space-y-1.5 pt-1">
           {legs.map((leg) => {
-            const name = leg.profiles?.full_name || leg.profiles?.username || leg.assigned_name || '?'
+            const persona = (leg.persona_id && byPersonaId[leg.persona_id])
+              || (leg.assigned_user_id && byUserId[leg.assigned_user_id])
+            const label = persona ? persona.emoji : (leg.assigned_name || '?')
             return (
               <div key={leg.id} className="bg-slate-900/80 rounded-md px-3 py-2 flex items-center justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <span className="text-slate-400 text-xs font-medium mr-2">{name}</span>
+                  <span className="text-base mr-2">{label}</span>
                   {leg.selection || leg.event ? (
                     <>
                       <span className="text-sm text-white">{leg.event}</span>

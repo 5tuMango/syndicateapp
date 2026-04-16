@@ -118,6 +118,18 @@ export default function WeeklyMulti() {
     return leg.assigned_name || 'Unknown'
   }
 
+  function legEmoji(leg) {
+    if (leg.persona_id) {
+      const p = personas.find((x) => x.id === leg.persona_id)
+      if (p) return p.emoji
+    }
+    if (leg.assigned_user_id) {
+      const p = personaMap[leg.assigned_user_id]
+      if (p) return p.emoji
+    }
+    return null
+  }
+
   // ── Season leaderboard (resulted multis) ─────────────────────────────────
   function buildLeaderboard() {
     const resulted = multis.filter((m) => m.status === 'resulted')
@@ -547,7 +559,7 @@ export default function WeeklyMulti() {
                       const isMyLeg =
                         (leg.persona_id && leg.persona_id === myPersona?.id) ||
                         (!leg.persona_id && leg.assigned_user_id === user?.id)
-                      const legName = legPersonaName(leg)
+                      const legName = legEmoji(leg) || legPersonaName(leg)
                       const canEdit =
                         (isMyLeg || isAdmin) && multi.status === 'open'
                       const hasFullDetails = leg.event || leg.selection
@@ -560,7 +572,7 @@ export default function WeeklyMulti() {
                         >
                           {/* Row 1: name | inline input | odds | outcome */}
                           <div className="flex items-center gap-2">
-                            <span className={`text-sm font-semibold shrink-0 w-24 truncate ${isMyLeg ? 'text-green-400' : 'text-slate-300'}`}>
+                            <span className={`text-xl shrink-0 w-8 text-center ${isMyLeg ? 'ring-1 ring-green-500/50 rounded' : ''}`}>
                               {legName}
                             </span>
 
