@@ -19,6 +19,7 @@ export default function Navbar() {
     { to: '/weekly-multi', label: 'Weekly Multi' },
     { to: '/leaderboard', label: 'Leaderboard' },
     { to: '/insights', label: 'Insights' },
+    ...(profile?.is_admin ? [{ to: '/admin/personas', label: 'Personas' }] : []),
   ]
 
   const isActive = (path) =>

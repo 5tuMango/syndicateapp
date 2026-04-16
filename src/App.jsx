@@ -11,6 +11,7 @@ import Leaderboard from './pages/Leaderboard'
 import Insights from './pages/Insights'
 import Teams from './pages/Teams'
 import WeeklyMulti from './pages/WeeklyMulti'
+import AdminPersonas from './pages/AdminPersonas'
 
 export default function App() {
   const { loading } = useAuth()
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/insights" element={<Insights />} />
         <Route path="/teams" element={<Teams />} />
         <Route path="/weekly-multi" element={<WeeklyMulti />} />
+        <Route path="/admin/personas" element={<AdminPersonas />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
