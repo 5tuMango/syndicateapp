@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { calcProfitLoss, formatCurrency, outcomeBadge, profitLossColor, eventTimeToDate, formatEventTime } from '../lib/utils'
 import { supabase } from '../lib/supabase'
+import { usePersonas } from '../hooks/usePersonas'
 
 // ── Single hook: current timestamp, ticks every second ───────────────────────
 function useNow() {
@@ -191,6 +192,7 @@ const OVERRIDE_OUTCOMES = ['won', 'lost', 'void', 'pending']
 
 export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) {
   const { user, profile } = useAuth()
+  const personaMap = usePersonas()
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -206,7 +208,10 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
   const isOwner = user?.id === bet.user_id
   const pl = calcProfitLoss(bet)
   const member = bet.profiles
-  const displayName = member?.full_name || member?.username || 'Unknown'
+  const persona = personaMap[bet.user_id]
+  const displayName = persona
+    ? `${persona.emoji} ${persona.nickname}`
+    : (member?.full_name || member?.username || 'Unknown')
   const legs = bet.bet_legs || []
   const isMulti = bet.bet_type === 'multi'
 

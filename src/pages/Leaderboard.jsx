@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { calcProfitLoss, formatCurrency, profitLossColor } from '../lib/utils'
+import { usePersonas } from '../hooks/usePersonas'
 
 const RANK_COLORS = ['text-yellow-400', 'text-slate-300', 'text-amber-600']
 
@@ -44,6 +45,7 @@ function calcWeeklyStats(multis) {
 
 export default function Leaderboard() {
   const { user } = useAuth()
+  const personaMap = usePersonas()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
   const [teams, setTeams] = useState([])
@@ -270,12 +272,14 @@ export default function Leaderboard() {
                   <div className={`text-xl font-bold w-7 text-center shrink-0 ${RANK_COLORS[i] ?? 'text-slate-600'}`}>
                     {i + 1}
                   </div>
-                  <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-base font-bold text-slate-300 shrink-0">
-                    {(member.full_name || member.username)[0].toUpperCase()}
+                  <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-xl shrink-0">
+                    {personaMap[member.id]?.emoji || (member.full_name || member.username)[0].toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-white text-sm">{member.full_name || member.username}</span>
+                      <span className="font-semibold text-white text-sm">
+                        {personaMap[member.id]?.nickname || member.full_name || member.username}
+                      </span>
                       {isMe && <span className="text-xs text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded">You</span>}
                     </div>
                     {member.total > 0 ? (

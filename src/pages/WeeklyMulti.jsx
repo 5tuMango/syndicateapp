@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePersonas } from '../hooks/usePersonas'
 
 const OUTCOME_OPTS = ['won', 'lost', 'void', 'pending']
 
@@ -39,6 +40,7 @@ function OutcomePill({ outcome }) {
 
 export default function WeeklyMulti() {
   const { user, profile } = useAuth()
+  const personaMap = usePersonas()
   const isAdmin = profile?.is_admin
 
   const [multis, setMultis] = useState([])
@@ -99,6 +101,8 @@ export default function WeeklyMulti() {
   }
 
   function profileName(id) {
+    const persona = personaMap[id]
+    if (persona) return `${persona.emoji} ${persona.nickname}`
     const p = profiles.find((x) => x.id === id)
     return p ? p.full_name || p.username : 'Unknown'
   }

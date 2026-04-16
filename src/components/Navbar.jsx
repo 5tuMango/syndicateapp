@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 
 export default function Navbar() {
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, persona, signOut } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -194,7 +194,7 @@ export default function Navbar() {
               to={`/profile/${profile.id}`}
               className="text-sm text-slate-300 hover:text-white transition-colors hidden sm:block"
             >
-              {profile.full_name || profile.username}
+              {persona ? `${persona.emoji} ${persona.nickname}` : (profile.full_name || profile.username)}
             </Link>
           )}
           <button

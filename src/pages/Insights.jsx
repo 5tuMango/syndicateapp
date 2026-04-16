@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { usePersonas } from '../hooks/usePersonas'
 import {
   LineChart,
   Line,
@@ -22,6 +23,7 @@ const LINE_COLORS = [
 ]
 
 export default function Insights() {
+  const personaMap = usePersonas()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
   const [weeklyMultis, setWeeklyMultis] = useState([])
@@ -290,7 +292,10 @@ export default function Insights() {
   }
 
   const noData = bets.length === 0
-  const displayName = (m) => m.full_name || m.username
+  const displayName = (m) => {
+    const p = personaMap[m.id]
+    return p ? `${p.emoji} ${p.nickname}` : (m.full_name || m.username)
+  }
 
   return (
     <div className="space-y-5">
