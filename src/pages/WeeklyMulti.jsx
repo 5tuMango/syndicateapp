@@ -58,7 +58,7 @@ export default function WeeklyMulti() {
 
   // Enter/edit pick modal
   const [editingLeg, setEditingLeg] = useState(null) // leg object
-  const [legForm, setLegForm] = useState({ raw_pick: '', event: '', description: '', selection: '', odds: '' })
+  const [legForm, setLegForm] = useState({ raw_pick: '', event: '', description: '', selection: '', odds: '', event_time: '' })
   const [savingLeg, setSavingLeg] = useState(false)
 
   // Inline pick editing: { [legId]: currentValue }
@@ -233,6 +233,7 @@ export default function WeeklyMulti() {
       description: leg.description || '',
       selection: leg.selection || '',
       odds: leg.odds != null ? String(leg.odds) : '',
+      event_time: leg.event_time ? new Date(leg.event_time).toISOString().substring(0, 16) : '',
     })
   }
 
@@ -247,6 +248,7 @@ export default function WeeklyMulti() {
         description: legForm.description.trim() || null,
         selection: legForm.selection.trim() || null,
         odds: legForm.odds ? parseFloat(legForm.odds) : null,
+        event_time: legForm.event_time || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', editingLeg.id)
@@ -326,6 +328,7 @@ export default function WeeklyMulti() {
         description: m.description || null,
         selection: m.selection || null,
         odds: m.odds || null,
+        event_time: m.event_time || null,
         updated_at: new Date().toISOString(),
       }
       if (m.outcome && m.outcome !== 'pending') update.outcome = m.outcome
@@ -341,6 +344,7 @@ export default function WeeklyMulti() {
         description: slipLeg.description || null,
         selection: slipLeg.selection || null,
         odds: slipLeg.odds || null,
+        event_time: slipLeg.event_time || null,
         updated_at: new Date().toISOString(),
       }
       if (slipLeg.outcome && slipLeg.outcome !== 'pending') update.outcome = slipLeg.outcome
@@ -780,6 +784,7 @@ const wonCount = legs.filter((l) => l.outcome === 'won').length
                   { key: 'description', label: 'Market', placeholder: 'e.g. Head to Head' },
                   { key: 'selection', label: 'Selection', placeholder: 'e.g. Collingwood (+35.5)' },
                   { key: 'odds', label: 'Odds', placeholder: 'e.g. 1.32', type: 'number' },
+                  { key: 'event_time', label: 'Event Date & Time AEST', placeholder: '', type: 'datetime-local' },
                 ].map(({ key, label, placeholder, type }) => (
                   <div key={key}>
                     <label className="block text-xs text-slate-400 mb-1">{label}</label>

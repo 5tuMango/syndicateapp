@@ -83,11 +83,11 @@ Matching rules:
 Return ONLY a valid JSON object in this exact shape:
 {
   "matches": [
-    { "leg_index": 0, "event": "...", "description": "...", "selection": "...", "odds": 1.24, "outcome": "won", "matched": true },
+    { "leg_index": 0, "event": "...", "description": "...", "selection": "...", "odds": 1.24, "event_time": "2026-04-20T14:30", "outcome": "won", "matched": true },
     ...
   ],
   "unmatched_slip_legs": [
-    { "event": "...", "description": "...", "selection": "...", "odds": 1.24, "outcome": "pending" },
+    { "event": "...", "description": "...", "selection": "...", "odds": 1.24, "event_time": "2026-04-20T19:45", "outcome": "pending" },
     ...
   ]
 }
@@ -98,11 +98,12 @@ Return ONLY a valid JSON object in this exact shape:
 - "description": market type (e.g. "Head to Head", "Pick Your Line", "Win-Draw-Win")
 - "selection": exact selection text from the bet slip
 - "odds": decimal odds as a number
+- "event_time": event start time in AEST as "YYYY-MM-DDTHH:MM" 24-hour format — extract from the bet slip if shown, otherwise null
 - "outcome": "won", "lost", "void", or "pending" — set from the bet slip if the result is shown, otherwise "pending"
 - "matched": true if clearly matched, false if uncertain or no pick was entered
-For unmatched/uncertain picks, set matched: false and omit event/selection/odds.
+For unmatched/uncertain picks, set matched: false and omit event/selection/odds/event_time.
 
-"unmatched_slip_legs": any legs found in the bet slip that could NOT be matched to any pick entry. Include "outcome" the same way. Omit this array (or return []) if all slip legs were matched.`
+"unmatched_slip_legs": any legs found in the bet slip that could NOT be matched to any pick entry. Include "outcome" and "event_time" the same way. Omit this array (or return []) if all slip legs were matched.`
 
   const content = [
     ...imageList.map(img => ({

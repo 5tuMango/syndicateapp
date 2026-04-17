@@ -160,7 +160,13 @@ export default function Dashboard() {
       ...weeklyMultis.map(m => {
         const legs = m.weekly_multi_legs || []
         const outcome = legs.length === 0 ? 'pending' : legs.every(l => l.outcome === 'won' || l.outcome === 'void') && legs.some(l => l.outcome === 'won') ? 'won' : legs.some(l => l.outcome === 'lost') ? 'lost' : 'pending'
-        return { type: 'weekly', key: m.id, data: m, outcome, lastTime: null, date: m.created_at?.slice(0, 10), created_at: m.created_at }
+        // Use earliest pending leg's event_time for sorting (mirrors betLastEventTime for regular bets)
+        const pendingLegTimes = legs
+          .filter(l => l.outcome === 'pending' && l.event_time)
+          .map(l => new Date(l.event_time).getTime())
+          .filter(t => !isNaN(t))
+        const lastTime = pendingLegTimes.length > 0 ? Math.max(...pendingLegTimes) : null
+        return { type: 'weekly', key: m.id, data: m, outcome, lastTime, date: m.created_at?.slice(0, 10), created_at: m.created_at }
       }),
     ]
     return allItems.sort((a, b) => {
