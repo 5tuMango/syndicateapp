@@ -323,26 +323,30 @@ export default function WeeklyMulti() {
     // Save auto-matched legs
     const matched = slipPreview.matches.filter(m => m.matched && m.leg_id)
     for (const m of matched) {
-      await supabase.from('weekly_multi_legs').update({
+      const update = {
         event: m.event || null,
         description: m.description || null,
         selection: m.selection || null,
         odds: m.odds || null,
         updated_at: new Date().toISOString(),
-      }).eq('id', m.leg_id)
+      }
+      if (m.outcome && m.outcome !== 'pending') update.outcome = m.outcome
+      await supabase.from('weekly_multi_legs').update(update).eq('id', m.leg_id)
     }
 
     // Save manually assigned unmatched slip legs
     for (const [slipIdx, legId] of Object.entries(manualAssignments)) {
       const slipLeg = unmatched[parseInt(slipIdx)]
       if (!slipLeg || !legId) continue
-      await supabase.from('weekly_multi_legs').update({
+      const update = {
         event: slipLeg.event || null,
         description: slipLeg.description || null,
         selection: slipLeg.selection || null,
         odds: slipLeg.odds || null,
         updated_at: new Date().toISOString(),
-      }).eq('id', legId)
+      }
+      if (slipLeg.outcome && slipLeg.outcome !== 'pending') update.outcome = slipLeg.outcome
+      await supabase.from('weekly_multi_legs').update(update).eq('id', legId)
     }
 
     setSlipPreview(null)
@@ -885,11 +889,14 @@ export default function WeeklyMulti() {
                       }
                     </div>
                     {m.matched && (
-                      <div className="text-xs text-slate-400 space-x-1">
+                      <div className="text-xs text-slate-400 flex flex-wrap items-center gap-x-1">
                         {m.event && <span className="text-slate-300">{m.event}</span>}
                         {m.description && <span>· {m.description}</span>}
                         {m.selection && <span className="text-green-400">· {m.selection}</span>}
                         {m.odds && <span className="text-white font-medium">@ {parseFloat(m.odds).toFixed(2)}</span>}
+                        {m.outcome && m.outcome !== 'pending' && (
+                          <span className={`ml-1 px-1.5 py-0.5 rounded border text-xs font-semibold ${outcomeBadge(m.outcome)}`}>{m.outcome}</span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -903,11 +910,14 @@ export default function WeeklyMulti() {
                       const assignedLegId = manualAssignments[si]
                       return (
                         <div key={si} className="p-3 rounded-lg bg-amber-900/20 border border-amber-500/30 space-y-2">
-                          <div className="text-xs text-slate-300">
+                          <div className="text-xs text-slate-300 flex flex-wrap items-center gap-x-1">
                             {sl.event && <span>{sl.event}</span>}
-                            {sl.description && <span className="text-slate-400"> · {sl.description}</span>}
-                            {sl.selection && <span className="text-green-400"> · {sl.selection}</span>}
-                            {sl.odds && <span className="text-white font-medium"> @ {parseFloat(sl.odds).toFixed(2)}</span>}
+                            {sl.description && <span className="text-slate-400">· {sl.description}</span>}
+                            {sl.selection && <span className="text-green-400">· {sl.selection}</span>}
+                            {sl.odds && <span className="text-white font-medium">@ {parseFloat(sl.odds).toFixed(2)}</span>}
+                            {sl.outcome && sl.outcome !== 'pending' && (
+                              <span className={`ml-1 px-1.5 py-0.5 rounded border text-xs font-semibold ${outcomeBadge(sl.outcome)}`}>{sl.outcome}</span>
+                            )}
                           </div>
                           <select
                             value={assignedLegId || ''}
