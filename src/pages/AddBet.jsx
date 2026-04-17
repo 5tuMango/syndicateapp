@@ -368,11 +368,11 @@ export default function AddBet() {
   const missingStake = !form.stake || isNaN(parseFloat(form.stake)) || parseFloat(form.stake) <= 0
   const missingSport = !form.sport
 
-  // "Intend to rollover" only visible when potential profit ≤ $150 and bet is pending
-  const potentialProfit = (!missingOdds && !missingStake)
-    ? parseFloat(form.stake) * (parseFloat(form.odds) - 1)
+  // "Intend to rollover" only visible when potential full return ≤ $150
+  const potentialReturn = (!missingOdds && !missingStake)
+    ? parseFloat(form.stake) * parseFloat(form.odds)
     : null
-  const showIntendToRollover = potentialProfit !== null && potentialProfit <= 150
+  const showIntendToRollover = potentialReturn !== null && potentialReturn <= 150
 
   // ── LANDING ────────────────────────────────────────────────
   if (mode === 'landing') {
@@ -600,7 +600,7 @@ export default function AddBet() {
               <div onClick={() => set('intend_to_rollover', !form.intend_to_rollover)} className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.intend_to_rollover ? 'bg-green-500' : 'bg-slate-600'}`}>
                 <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.intend_to_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
               </div>
-              <span className="text-sm text-slate-300">Intend to rollover winnings <span className="text-slate-500 text-xs">(if this wins, ${potentialProfit?.toFixed(2)} profit will be tracked for re-betting)</span></span>
+              <span className="text-sm text-slate-300">Intend to rollover winnings <span className="text-slate-500 text-xs">(if this wins, $${potentialReturn?.toFixed(2)} full return tracked for re-betting)</span></span>
             </label>
           )}
 
@@ -885,7 +885,7 @@ export default function AddBet() {
               <div onClick={() => set('intend_to_rollover', !form.intend_to_rollover)} className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.intend_to_rollover ? 'bg-green-500' : 'bg-slate-600'}`}>
                 <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.intend_to_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
               </div>
-              <span className="text-sm text-slate-300">Intend to rollover winnings <span className="text-slate-500 text-xs">(if this wins, ${potentialProfit?.toFixed(2)} profit will be tracked for re-betting)</span></span>
+              <span className="text-sm text-slate-300">Intend to rollover winnings <span className="text-slate-500 text-xs">(if this wins, $${potentialReturn?.toFixed(2)} full return tracked for re-betting)</span></span>
             </label>
           )}
 
