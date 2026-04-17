@@ -18,11 +18,6 @@ function outcomeBadge(outcome) {
   }
 }
 
-function statusBadge(status) {
-  return status === 'resulted'
-    ? 'bg-green-500/20 text-green-400 border-green-500/30'
-    : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-}
 
 function combinedOdds(legs) {
   const entered = legs.filter((l) => l.odds != null && l.odds > 0)
@@ -131,9 +126,12 @@ export default function WeeklyMulti() {
     return null
   }
 
-  // ── Season leaderboard (resulted multis) ─────────────────────────────────
+  // ── Season leaderboard (multis where all legs are resolved) ─────────────────
   function buildLeaderboard() {
-    const resulted = multis.filter((m) => m.status === 'resulted')
+    const resulted = multis.filter((m) => {
+      const legs = m.weekly_multi_legs || []
+      return legs.length > 0 && legs.every(l => l.outcome && l.outcome !== 'pending')
+    })
     if (resulted.length === 0) return null
     const stats = {}
     for (const multi of resulted) {
@@ -379,26 +377,6 @@ export default function WeeklyMulti() {
     load()
   }
 
-  // ── Mark resulted ─────────────────────────────────────────────────────────
-  async function markResulted(multi) {
-    await supabase
-      .from('weekly_multis')
-      .update({ status: 'resulted' })
-      .eq('id', multi.id)
-    // Notify all claimed personas
-    const notifs = personas
-      .filter((p) => p.claimed_by)
-      .map((p) => ({
-        user_id: p.claimed_by,
-        title: `Weekly Multi Resulted: ${multi.week_label}`,
-        body: 'The weekly multi has been resulted. Check how everyone went!',
-        link: '/weekly-multi',
-      }))
-    if (notifs.length > 0) {
-      await supabase.from('notifications').insert(notifs)
-    }
-    load()
-  }
 
   if (loading) {
     return (
@@ -477,8 +455,7 @@ export default function WeeklyMulti() {
               (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
             )
             const odds = combinedOdds(legs)
-            const allResolved = legs.length > 0 && legs.every((l) => l.outcome !== 'pending')
-            const wonCount = legs.filter((l) => l.outcome === 'won').length
+const wonCount = legs.filter((l) => l.outcome === 'won').length
             const lostCount = legs.filter((l) => l.outcome === 'lost').length
             const nonVoidLegs = legs.filter((l) => l.outcome !== 'void')
             const multiWon = nonVoidLegs.length > 0 && nonVoidLegs.every((l) => l.outcome === 'won')
@@ -494,11 +471,6 @@ export default function WeeklyMulti() {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-white font-bold text-base">{multi.week_label}</h3>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded border ${statusBadge(multi.status)}`}
-                    >
-                      {multi.status === 'resulted' ? 'Resulted' : 'Open'}
-                    </span>
                     {odds != null && (
                       <span className="text-slate-400 text-xs">
                         Combined odds:{' '}
@@ -535,7 +507,7 @@ export default function WeeklyMulti() {
                     {winnings != null && (
                       <span className="text-green-400 font-bold text-sm">+${winnings.toFixed(2)}</span>
                     )}
-                    {multi.status === 'resulted' && (
+                    {(wonCount > 0 || lostCount > 0) && (
                       <span className="text-xs text-slate-400">
                         <span className="text-green-400 font-semibold">{wonCount}W</span>
                         {' / '}
@@ -545,16 +517,7 @@ export default function WeeklyMulti() {
                   </div>
                   {isAdmin && (
                     <div className="flex items-center gap-3 flex-wrap">
-                      {multi.status === 'open' && allResolved && legs.length > 0 && (
-                        <button
-                          onClick={() => markResulted(multi)}
-                          className="text-xs bg-green-500 hover:bg-green-400 text-white font-semibold rounded-lg px-3 py-1.5 transition-colors"
-                        >
-                          Mark Resulted
-                        </button>
-                      )}
-                      {multi.status === 'open' && (
-                        <label className={`text-xs cursor-pointer transition-colors ${slipUploading ? 'text-slate-500 cursor-wait' : 'text-slate-400 hover:text-blue-400'}`}>
+                      <label className={`text-xs cursor-pointer transition-colors ${slipUploading ? 'text-slate-500 cursor-wait' : 'text-slate-400 hover:text-blue-400'}`}>
                           {slipUploading ? 'Reading slip…' : '📋 Upload Bet Slip'}
                           <input
                             type="file"
@@ -585,7 +548,7 @@ export default function WeeklyMulti() {
                         (!leg.persona_id && leg.assigned_user_id === user?.id)
                       const legName = legEmoji(leg) || legPersonaName(leg)
                       const canEdit =
-                        (isMyLeg || isAdmin) && multi.status === 'open'
+                        (isMyLeg || isAdmin)
                       const hasFullDetails = leg.event || leg.selection
                       const hasPickEntered = hasFullDetails || leg.raw_pick
 
@@ -653,7 +616,7 @@ export default function WeeklyMulti() {
                 )}
 
                 {/* Add member slot (admin, open only) */}
-                {isAdmin && multi.status === 'open' && (
+                {isAdmin && (
                   <button
                     onClick={() => setAddingLeg(multi.id)}
                     className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
