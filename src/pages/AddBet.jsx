@@ -372,7 +372,7 @@ export default function AddBet() {
   const potentialProfit = (!missingOdds && !missingStake)
     ? parseFloat(form.stake) * (parseFloat(form.odds) - 1)
     : null
-  const showIntendToRollover = potentialProfit !== null && potentialProfit <= 150 && form.outcome === 'pending'
+  const showIntendToRollover = potentialProfit !== null && potentialProfit <= 150
 
   // ── LANDING ────────────────────────────────────────────────
   if (mode === 'landing') {
