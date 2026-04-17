@@ -54,10 +54,11 @@ export function formatEventTime(timeStr) {
 // Gross return when a bet wins (what lands in your account)
 export const calcWinnings = (bet) => {
   if (bet.outcome !== 'won') return 0
+  // intend_to_rollover: winnings go straight back out as the rollover stake — don't count twice
+  if (bet.intend_to_rollover) return 0
   const stake = parseFloat(bet.stake)
   const odds = parseFloat(bet.odds)
   // Bonus bets: stake not returned, so you only receive stake × (odds - 1)
-  // Rollover bets: full return counts (stake was from prior winnings, not own pocket)
   return bet.is_bonus_bet ? stake * (odds - 1) : stake * odds
 }
 
