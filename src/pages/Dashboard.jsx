@@ -176,7 +176,7 @@ export default function Dashboard() {
     const balance = totalPaidIn + settledPL + weeklyStats.pl - pendingStakes - pendingWeeklyStakes
     const numPunters = personaList.length || 8
     const payoutPerPunter = balance / numPunters
-    return { contributions, penalties, unattributed: unattributedFunds, totalPaidIn, totalTarget, toPay: totalTarget - contributions, balance, pendingStakes: pendingStakes + pendingWeeklyStakes, payoutPerPunter }
+    return { contributions, penalties, unattributed: unattributedFunds, totalPaidIn, totalTarget, toPay: Math.max(0, totalTarget - contributions - unattributedFunds), balance, pendingStakes: pendingStakes + pendingWeeklyStakes, payoutPerPunter }
   }, [personaList, bets, weeklyMultis, weeklyStats, unattributedFunds])
 
   const handleDelete = (id) => setBets((prev) => prev.filter((b) => b.id !== id))
