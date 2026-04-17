@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 // byUserId: claimed_by (auth user id) → persona  — for member lists, leaderboard
 // byPersonaId: persona.id → persona              — for bets with persona_id set directly
 export function usePersonas() {
-  const [maps, setMaps] = useState({ byUserId: {}, byPersonaId: {} })
+  const [maps, setMaps] = useState({ byUserId: {}, byPersonaId: {}, list: [] })
 
   useEffect(() => {
     supabase.from('personas').select('*').then(({ data }) => {
@@ -15,7 +15,7 @@ export function usePersonas() {
         if (p.claimed_by) byUserId[p.claimed_by] = p
         byPersonaId[p.id] = p
       }
-      setMaps({ byUserId, byPersonaId })
+      setMaps({ byUserId, byPersonaId, list: data || [] })
     })
   }, [])
 

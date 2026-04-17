@@ -43,7 +43,7 @@ function calcWeeklyStats(multis) {
 }
 
 export default function Dashboard() {
-  const { byUserId: personaMap, byPersonaId } = usePersonas()
+  const { byUserId: personaMap, byPersonaId, list: personaList } = usePersonas()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
   const [weeklyMultis, setWeeklyMultis] = useState([])
@@ -153,6 +153,15 @@ export default function Dashboard() {
       : 0,
   }), [individStats, weeklyStats, filteredBets, weeklyMultis])
 
+  // Kitty: total contributions + running P&L across ALL bets (unfiltered)
+  const kitty = useMemo(() => {
+    const totalPaid = personaList.reduce((s, p) => s + parseFloat(p.amount_paid || 0), 0)
+    const totalTarget = personaList.reduce((s, p) => s + parseFloat(p.contribution_target || 400), 0)
+    const allBetsPL = bets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
+    const balance = totalPaid + allBetsPL + weeklyStats.pl
+    return { totalPaid, totalTarget, toPay: totalTarget - totalPaid, balance }
+  }, [personaList, bets, weeklyStats])
+
   const handleDelete = (id) => setBets((prev) => prev.filter((b) => b.id !== id))
 
   const handleUpdate = async (betId) => {
@@ -208,6 +217,42 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold text-white">Dashboard</h1>
         <p className="text-slate-400 text-sm mt-0.5">All bets across the syndicate</p>
       </div>
+
+      {/* Kitty — club fund overview */}
+      {personaList.length > 0 && (
+        <div className="bg-slate-800 rounded-xl border border-emerald-700/40 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-emerald-400 font-bold text-sm uppercase tracking-wide">💰 The Kitty</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Balance</p>
+              <p className={`text-2xl font-bold ${kitty.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                ${kitty.balance.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Paid In</p>
+              <p className="text-xl font-bold text-white">${kitty.totalPaid.toFixed(2)}</p>
+              <p className="text-xs text-slate-500 mt-0.5">of ${kitty.totalTarget.toFixed(0)} target</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">To Pay</p>
+              <p className="text-xl font-bold text-amber-400">${kitty.toPay.toFixed(2)}</p>
+            </div>
+          </div>
+          {/* Progress bar */}
+          <div className="mt-3 h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-emerald-500 rounded-full transition-all"
+              style={{ width: `${Math.min((kitty.totalPaid / kitty.totalTarget) * 100, 100)}%` }}
+            />
+          </div>
+          <p className="text-xs text-slate-500 mt-1.5">
+            {Math.round((kitty.totalPaid / kitty.totalTarget) * 100)}% collected · {personaList.filter(p => parseFloat(p.amount_paid || 0) >= parseFloat(p.contribution_target || 400)).length}/{personaList.length} members fully paid
+          </p>
+        </div>
+      )}
 
       {/* Stats strip — combined totals */}
       <div className="space-y-2">

@@ -8,7 +8,7 @@ export default function AdminPersonas() {
   const [personas, setPersonas] = useState([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null) // persona id being edited
-  const [editForm, setEditForm] = useState({ nickname: '', emoji: '' })
+  const [editForm, setEditForm] = useState({ nickname: '', emoji: '', amount_paid: '', contribution_target: '' })
   const [msg, setMsg] = useState({}) // { [id]: { ok, text } }
 
   if (!profile?.is_admin) return <Navigate to="/" replace />
@@ -35,7 +35,12 @@ export default function AdminPersonas() {
 
   function startEdit(persona) {
     setEditing(persona.id)
-    setEditForm({ nickname: persona.nickname, emoji: persona.emoji })
+    setEditForm({
+      nickname: persona.nickname,
+      emoji: persona.emoji,
+      amount_paid: String(persona.amount_paid ?? 0),
+      contribution_target: String(persona.contribution_target ?? 400),
+    })
   }
 
   function cancelEdit() {
@@ -46,7 +51,12 @@ export default function AdminPersonas() {
   async function saveEdit(id) {
     const { error } = await supabase
       .from('personas')
-      .update({ nickname: editForm.nickname.trim(), emoji: editForm.emoji.trim() })
+      .update({
+        nickname: editForm.nickname.trim(),
+        emoji: editForm.emoji.trim(),
+        amount_paid: parseFloat(editForm.amount_paid) || 0,
+        contribution_target: parseFloat(editForm.contribution_target) || 400,
+      })
       .eq('id', id)
     if (error) {
       flash(id, false, error.message)
@@ -130,6 +140,30 @@ export default function AdminPersonas() {
                       />
                     </div>
                   </div>
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="text-xs text-slate-400 mb-1 block">Paid In ($)</label>
+                      <input
+                        type="number"
+                        value={editForm.amount_paid}
+                        onChange={(e) => setEditForm((f) => ({ ...f, amount_paid: e.target.value }))}
+                        step="50"
+                        min="0"
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-xs text-slate-400 mb-1 block">Target ($)</label>
+                      <input
+                        type="number"
+                        value={editForm.contribution_target}
+                        onChange={(e) => setEditForm((f) => ({ ...f, contribution_target: e.target.value }))}
+                        step="50"
+                        min="0"
+                        className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => saveEdit(p.id)}
@@ -159,6 +193,18 @@ export default function AdminPersonas() {
                       ) : (
                         <span className="text-slate-500">Unclaimed</span>
                       )}
+                    </div>
+                    <div className="text-xs mt-1">
+                      {(() => {
+                        const paid = parseFloat(p.amount_paid || 0)
+                        const target = parseFloat(p.contribution_target || 400)
+                        const full = paid >= target
+                        return (
+                          <span className={full ? 'text-emerald-400' : 'text-amber-400'}>
+                            Kitty: ${paid.toFixed(0)} / ${target.toFixed(0)}{full ? ' ✓' : ''}
+                          </span>
+                        )
+                      })()}
                     </div>
                     {msg[p.id] && (
                       <div
