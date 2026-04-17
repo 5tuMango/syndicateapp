@@ -420,6 +420,11 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
                 ROLLOVER
               </span>
             )}
+            {bet.intend_to_rollover && !bet.is_rollover && (
+              <span className="text-xs px-2 py-0.5 rounded border bg-green-500/20 text-green-400 border-green-500/30 font-semibold">
+                ROLLOVER INTENT
+              </span>
+            )}
           </div>
           <p className="text-white font-medium leading-snug">{bet.event}</p>
           {bet.notes && <p className="text-slate-400 text-sm mt-0.5">{bet.notes}</p>}

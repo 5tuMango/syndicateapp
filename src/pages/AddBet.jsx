@@ -73,6 +73,7 @@ export default function AddBet() {
   const [error, setError] = useState('')
   const [personas, setPersonas] = useState([])
   const [selectedPersonaId, setSelectedPersonaId] = useState('')
+  const [rolloverPool, setRolloverPool] = useState(null) // { sourceId, sourceName, totalReturn, remaining }
 
   // Screenshot state
   const [screenshotUrl, setScreenshotUrl] = useState(null)
@@ -93,6 +94,7 @@ export default function AddBet() {
     event_time: '',
     is_bonus_bet: false,
     is_rollover: false,
+    intend_to_rollover: false,
     bet_return_text: '',
     bet_return_value: '',
   })
@@ -117,6 +119,45 @@ export default function AddBet() {
       if (persona) setSelectedPersonaId(persona.id)
     })
   }, [profile, persona])
+
+  // Check for active rollover pool when persona changes
+  const activePersonaId = profile?.is_admin ? selectedPersonaId : persona?.id
+  useEffect(() => {
+    if (!activePersonaId) return setRolloverPool(null)
+    checkRolloverPool(activePersonaId)
+  }, [activePersonaId])
+
+  async function checkRolloverPool(personaId) {
+    // Find won bets flagged as intend_to_rollover for this persona
+    const { data: sources } = await supabase
+      .from('bets')
+      .select('id, event, stake, odds')
+      .eq('persona_id', personaId)
+      .eq('intend_to_rollover', true)
+      .eq('outcome', 'won')
+    if (!sources || sources.length === 0) return setRolloverPool(null)
+
+    // Find all rollover bets already drawn from these sources
+    const sourceIds = sources.map(s => s.id)
+    const { data: rollovers } = await supabase
+      .from('bets')
+      .select('rollover_source_id, stake')
+      .in('rollover_source_id', sourceIds)
+
+    // Find the first source with remaining balance
+    for (const src of sources) {
+      const totalReturn = parseFloat(src.stake) * parseFloat(src.odds)
+      const used = (rollovers || [])
+        .filter(r => r.rollover_source_id === src.id)
+        .reduce((sum, r) => sum + parseFloat(r.stake), 0)
+      const remaining = Math.round((totalReturn - used) * 100) / 100
+      if (remaining > 0.01) {
+        setRolloverPool({ sourceId: src.id, sourceName: src.event, totalReturn, used, remaining })
+        return
+      }
+    }
+    setRolloverPool(null)
+  }
 
   // ── Screenshot extraction ──────────────────────────────────
   const handleScreenshotSelect = async (e) => {
@@ -253,6 +294,8 @@ export default function AddBet() {
           event_time: form.event_time || null,
           is_bonus_bet: form.is_bonus_bet || false,
           is_rollover: form.is_rollover || false,
+          rollover_source_id: form.is_rollover && rolloverPool ? rolloverPool.sourceId : null,
+          intend_to_rollover: form.intend_to_rollover || false,
           bet_return_text: form.bet_return_text.trim() || null,
           bet_return_value: form.bet_return_value ? parseFloat(form.bet_return_value) : null,
           bet_return_earned: (() => {
@@ -324,6 +367,12 @@ export default function AddBet() {
   const missingOdds  = !form.odds  || isNaN(parseFloat(form.odds))  || parseFloat(form.odds)  <= 1
   const missingStake = !form.stake || isNaN(parseFloat(form.stake)) || parseFloat(form.stake) <= 0
   const missingSport = !form.sport
+
+  // "Intend to rollover" only visible when potential profit ≤ $150 and bet is pending
+  const potentialProfit = (!missingOdds && !missingStake)
+    ? parseFloat(form.stake) * (parseFloat(form.odds) - 1)
+    : null
+  const showIntendToRollover = potentialProfit !== null && potentialProfit <= 150 && form.outcome === 'pending'
 
   // ── LANDING ────────────────────────────────────────────────
   if (mode === 'landing') {
@@ -453,12 +502,6 @@ export default function AddBet() {
               </div>
               <span className="text-sm text-slate-300">Bonus bet <span className="text-slate-500 text-xs">(free bet)</span></span>
             </label>
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <div onClick={() => set('is_rollover', !form.is_rollover)} className={`w-10 h-6 rounded-full transition-colors relative ${form.is_rollover ? 'bg-blue-500' : 'bg-slate-600'}`}>
-                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
-              </div>
-              <span className="text-sm text-slate-300">Rollover stake <span className="text-slate-500 text-xs">(from previous winnings)</span></span>
-            </label>
             <div className="space-y-2">
               <label className={lbl}>Bet Return (optional)</label>
               <div className="flex gap-2">
@@ -532,6 +575,33 @@ export default function AddBet() {
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Rollover pool banner — shown when this persona has winnings to re-invest */}
+          {rolloverPool && (
+            <div className="bg-blue-900/20 border border-blue-600/40 rounded-xl px-4 py-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-blue-400 font-semibold text-sm">💰 Rollover available</span>
+                <span className="text-blue-300 font-bold text-sm">${rolloverPool.remaining.toFixed(2)} remaining</span>
+                <span className="text-slate-500 text-xs">from "{rolloverPool.sourceName}"</span>
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <div onClick={() => set('is_rollover', !form.is_rollover)} className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.is_rollover ? 'bg-blue-500' : 'bg-slate-600'}`}>
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
+                </div>
+                <span className="text-sm text-slate-300">Use rollover stake <span className="text-slate-500 text-xs">(stake excluded from your capital stats)</span></span>
+              </label>
+            </div>
+          )}
+
+          {/* Intend to rollover — only shown when potential profit ≤ $150 and outcome pending */}
+          {showIntendToRollover && (
+            <label className="flex items-center gap-3 cursor-pointer select-none bg-slate-800 rounded-xl border border-slate-700 px-5 py-4">
+              <div onClick={() => set('intend_to_rollover', !form.intend_to_rollover)} className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.intend_to_rollover ? 'bg-green-500' : 'bg-slate-600'}`}>
+                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.intend_to_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
+              </div>
+              <span className="text-sm text-slate-300">Intend to rollover winnings <span className="text-slate-500 text-xs">(if this wins, ${potentialProfit?.toFixed(2)} profit will be tracked for re-betting)</span></span>
+            </label>
           )}
 
           {error && <div className="text-sm text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-4 py-3">{error}</div>}
@@ -784,6 +854,23 @@ export default function AddBet() {
             </div>
           </div>
 
+          {/* Rollover pool banner — shown when this persona has winnings to re-invest */}
+          {rolloverPool && (
+            <div className="bg-blue-900/20 border border-blue-600/40 rounded-xl px-4 py-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-blue-400 font-semibold text-sm">💰 Rollover available</span>
+                <span className="text-blue-300 font-bold text-sm">${rolloverPool.remaining.toFixed(2)} remaining</span>
+                <span className="text-slate-500 text-xs">from "{rolloverPool.sourceName}"</span>
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <div onClick={() => set('is_rollover', !form.is_rollover)} className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.is_rollover ? 'bg-blue-500' : 'bg-slate-600'}`}>
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
+                </div>
+                <span className="text-sm text-slate-300">Use rollover stake <span className="text-slate-500 text-xs">(stake excluded from your capital stats)</span></span>
+              </label>
+            </div>
+          )}
+
           {/* Bonus bet toggle */}
           <label className="flex items-center gap-3 cursor-pointer select-none bg-slate-800 rounded-xl border border-slate-700 px-5 py-4">
             <div onClick={() => set('is_bonus_bet', !form.is_bonus_bet)} className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.is_bonus_bet ? 'bg-amber-500' : 'bg-slate-600'}`}>
@@ -792,13 +879,15 @@ export default function AddBet() {
             <span className="text-sm text-slate-300">Bonus bet <span className="text-slate-500 text-xs">(free bet — stake not returned if won)</span></span>
           </label>
 
-          {/* Rollover toggle */}
-          <label className="flex items-center gap-3 cursor-pointer select-none bg-slate-800 rounded-xl border border-slate-700 px-5 py-4">
-            <div onClick={() => set('is_rollover', !form.is_rollover)} className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.is_rollover ? 'bg-blue-500' : 'bg-slate-600'}`}>
-              <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
-            </div>
-            <span className="text-sm text-slate-300">Rollover stake <span className="text-slate-500 text-xs">(funded from previous winnings — stake excluded from stats)</span></span>
-          </label>
+          {/* Intend to rollover — only shown when potential profit ≤ $150 and outcome pending */}
+          {showIntendToRollover && (
+            <label className="flex items-center gap-3 cursor-pointer select-none bg-slate-800 rounded-xl border border-slate-700 px-5 py-4">
+              <div onClick={() => set('intend_to_rollover', !form.intend_to_rollover)} className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.intend_to_rollover ? 'bg-green-500' : 'bg-slate-600'}`}>
+                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.intend_to_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
+              </div>
+              <span className="text-sm text-slate-300">Intend to rollover winnings <span className="text-slate-500 text-xs">(if this wins, ${potentialProfit?.toFixed(2)} profit will be tracked for re-betting)</span></span>
+            </label>
+          )}
 
           {error && <div className="text-sm text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-4 py-3">{error}</div>}
 
