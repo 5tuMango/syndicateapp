@@ -158,15 +158,13 @@ export default function Dashboard() {
 
   // Kitty: total contributions + settled P&L − pending stakes (committed, can't retrieve)
   const kitty = useMemo(() => {
-    const totalPaid = personaList.reduce((s, p) => s + parseFloat(p.amount_paid || 0) + parseFloat(p.penalties_paid || 0), 0)
+    const contributions = personaList.reduce((s, p) => s + parseFloat(p.amount_paid || 0), 0)
+    const penalties = personaList.reduce((s, p) => s + parseFloat(p.penalties_paid || 0), 0)
     const totalTarget = personaList.reduce((s, p) => s + parseFloat(p.contribution_target || 400), 0)
-    // Only settled bets affect P&L; pending bets are treated as a deduction (stake already out)
     const settledPL = bets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
-    // Deduct real pending stakes (bonus bets are free — no real money at risk)
     const pendingStakes = bets
       .filter(b => b.outcome === 'pending' && !b.is_bonus_bet)
       .reduce((sum, b) => sum + parseFloat(b.stake), 0)
-    // Weekly multis: deduct stakes for any still-pending multis
     const pendingWeeklyStakes = weeklyMultis
       .filter(m => {
         const legs = m.weekly_multi_legs || []
@@ -174,10 +172,11 @@ export default function Dashboard() {
         return nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending')
       })
       .reduce((sum, m) => sum + parseFloat(m.stake || 0), 0)
-    const balance = totalPaid + unattributedFunds + settledPL + weeklyStats.pl - pendingStakes - pendingWeeklyStakes
+    const totalPaidIn = contributions + penalties + unattributedFunds
+    const balance = totalPaidIn + settledPL + weeklyStats.pl - pendingStakes - pendingWeeklyStakes
     const numPunters = personaList.length || 8
     const payoutPerPunter = balance / numPunters
-    return { totalPaid: totalPaid + unattributedFunds, totalTarget, toPay: totalTarget - totalPaid, balance, pendingStakes: pendingStakes + pendingWeeklyStakes, payoutPerPunter }
+    return { contributions, penalties, unattributed: unattributedFunds, totalPaidIn, totalTarget, toPay: totalTarget - contributions, balance, pendingStakes: pendingStakes + pendingWeeklyStakes, payoutPerPunter }
   }, [personaList, bets, weeklyMultis, weeklyStats, unattributedFunds])
 
   const handleDelete = (id) => setBets((prev) => prev.filter((b) => b.id !== id))
@@ -242,7 +241,8 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 mb-3">
             <span className="text-emerald-400 font-bold text-sm uppercase tracking-wide">💰 The Kitty</span>
           </div>
-          <div className="grid grid-cols-4 gap-3">
+          {/* Row 1: Balance + Per Punter */}
+          <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
               <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Balance</p>
               <p className={`text-2xl font-bold ${kitty.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -255,26 +255,36 @@ export default function Dashboard() {
                 ${kitty.payoutPerPunter.toFixed(2)}
               </p>
             </div>
+          </div>
+          {/* Row 2: Contributions + Penalties + Unattributed + To Pay */}
+          <div className="grid grid-cols-4 gap-3 border-t border-slate-700 pt-3">
             <div>
-              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Paid In</p>
-              <p className="text-xl font-bold text-white">${kitty.totalPaid.toFixed(2)}</p>
-              <p className="text-xs text-slate-500 mt-0.5">of ${kitty.totalTarget.toFixed(0)} target</p>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Contributions</p>
+              <p className="text-base font-bold text-white">${kitty.contributions.toFixed(0)}</p>
+              <p className="text-xs text-slate-500 mt-0.5">of ${kitty.totalTarget.toFixed(0)}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">To Pay</p>
-              <p className="text-xl font-bold text-amber-400">${kitty.toPay.toFixed(2)}</p>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Penalties</p>
+              <p className={`text-base font-bold ${kitty.penalties > 0 ? 'text-purple-400' : 'text-slate-600'}`}>${kitty.penalties.toFixed(0)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Unattributed</p>
+              <p className={`text-base font-bold ${kitty.unattributed > 0 ? 'text-slate-300' : 'text-slate-600'}`}>${kitty.unattributed.toFixed(0)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Still Owed</p>
+              <p className="text-base font-bold text-amber-400">${kitty.toPay.toFixed(0)}</p>
             </div>
           </div>
           {/* Progress bar */}
           <div className="mt-3 h-2 bg-slate-700 rounded-full overflow-hidden">
             <div
               className="h-full bg-emerald-500 rounded-full transition-all"
-              style={{ width: `${Math.min((kitty.totalPaid / kitty.totalTarget) * 100, 100)}%` }}
+              style={{ width: `${Math.min((kitty.contributions / kitty.totalTarget) * 100, 100)}%` }}
             />
           </div>
           <p className="text-xs text-slate-500 mt-1.5">
             {personaList.filter(p => parseFloat(p.amount_paid || 0) >= parseFloat(p.contribution_target || 400)).length}/{personaList.length} members fully paid
-            {unattributedFunds > 0 && <span className="text-slate-500"> · +${unattributedFunds.toFixed(0)} unattributed</span>}
             {kitty.pendingStakes > 0 && <span className="text-yellow-500"> · ${kitty.pendingStakes.toFixed(2)} in pending bets</span>}
           </p>
         </div>
