@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import BetCard from '../components/BetCard'
 import WeeklyMultiCard from '../components/WeeklyMultiCard'
 import FilterBar from '../components/FilterBar'
-import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor, sortBetsByActivity, betLastEventTime } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor, sortBetsByActivity, betLastEventTime, isRealStake } from '../lib/utils'
 import { usePersonas } from '../hooks/usePersonas'
 
 function calcWeeklyStats(multis) {
@@ -86,7 +86,7 @@ export default function Dashboard() {
     const resolved = filteredBets.filter((b) => b.outcome !== 'pending' && b.outcome !== 'void')
     const won = filteredBets.filter((b) => b.outcome === 'won').length
     const pl = filteredBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
-    const staked = filteredBets.filter((b) => b.outcome !== 'void').reduce((sum, b) => sum + parseFloat(b.stake), 0)
+    const staked = filteredBets.filter((b) => b.outcome !== 'void' && isRealStake(b)).reduce((sum, b) => sum + parseFloat(b.stake), 0)
     const winnings = filteredBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + calcWinnings(b), 0)
     const nonVoid = filteredBets.filter((b) => b.outcome !== 'void')
     const sumStakeOdds = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import BetCard from '../components/BetCard'
 import FilterBar from '../components/FilterBar'
-import { calcProfitLoss, formatCurrency, profitLossColor, sortBetsByActivity } from '../lib/utils'
+import { calcProfitLoss, formatCurrency, profitLossColor, sortBetsByActivity, isRealStake } from '../lib/utils'
 
 export default function Profile() {
   const { id } = useParams()
@@ -73,7 +73,7 @@ export default function Profile() {
     const resolved = bets.filter((b) => b.outcome !== 'pending' && b.outcome !== 'void')
     const won = bets.filter((b) => b.outcome === 'won').length
     const pl = bets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
-    const staked = bets.filter((b) => b.outcome !== 'void').reduce((sum, b) => sum + parseFloat(b.stake), 0)
+    const staked = bets.filter((b) => b.outcome !== 'void' && isRealStake(b)).reduce((sum, b) => sum + parseFloat(b.stake), 0)
     return {
       total: bets.length,
       won,

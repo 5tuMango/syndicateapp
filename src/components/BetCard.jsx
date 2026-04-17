@@ -415,6 +415,11 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
                 BONUS
               </span>
             )}
+            {bet.is_rollover && (
+              <span className="text-xs px-2 py-0.5 rounded border bg-blue-500/20 text-blue-400 border-blue-500/30 font-semibold">
+                ROLLOVER
+              </span>
+            )}
           </div>
           <p className="text-white font-medium leading-snug">{bet.event}</p>
           {bet.notes && <p className="text-slate-400 text-sm mt-0.5">{bet.notes}</p>}

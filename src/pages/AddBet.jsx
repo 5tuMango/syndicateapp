@@ -92,6 +92,7 @@ export default function AddBet() {
     notes: '',
     event_time: '',
     is_bonus_bet: false,
+    is_rollover: false,
     bet_return_text: '',
     bet_return_value: '',
   })
@@ -251,13 +252,12 @@ export default function AddBet() {
           screenshot_url: screenshotUrl || null,
           event_time: form.event_time || null,
           is_bonus_bet: form.is_bonus_bet || false,
+          is_rollover: form.is_rollover || false,
           bet_return_text: form.bet_return_text.trim() || null,
           bet_return_value: form.bet_return_value ? parseFloat(form.bet_return_value) : null,
           bet_return_earned: (() => {
             if (!form.bet_return_text.trim() || !form.bet_return_value || form.outcome === 'pending') return null
-            const legsList = form.bet_type === 'multi' ? legs : []
-            const earned = evaluateBetReturn(form.bet_return_text, form.outcome, legsList)
-            return earned // null = needs review (e.g. racing placement)
+            return evaluateBetReturn(form.bet_return_text, form.outcome, form.bet_type === 'multi' ? legs : [])
           })(),
         })
         .select()
@@ -452,6 +452,12 @@ export default function AddBet() {
                 <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_bonus_bet ? 'translate-x-5' : 'translate-x-1'}`} />
               </div>
               <span className="text-sm text-slate-300">Bonus bet <span className="text-slate-500 text-xs">(free bet)</span></span>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <div onClick={() => set('is_rollover', !form.is_rollover)} className={`w-10 h-6 rounded-full transition-colors relative ${form.is_rollover ? 'bg-blue-500' : 'bg-slate-600'}`}>
+                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
+              </div>
+              <span className="text-sm text-slate-300">Rollover stake <span className="text-slate-500 text-xs">(from previous winnings)</span></span>
             </label>
             <div className="space-y-2">
               <label className={lbl}>Bet Return (optional)</label>
@@ -784,6 +790,14 @@ export default function AddBet() {
               <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_bonus_bet ? 'translate-x-5' : 'translate-x-1'}`} />
             </div>
             <span className="text-sm text-slate-300">Bonus bet <span className="text-slate-500 text-xs">(free bet — stake not returned if won)</span></span>
+          </label>
+
+          {/* Rollover toggle */}
+          <label className="flex items-center gap-3 cursor-pointer select-none bg-slate-800 rounded-xl border border-slate-700 px-5 py-4">
+            <div onClick={() => set('is_rollover', !form.is_rollover)} className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.is_rollover ? 'bg-blue-500' : 'bg-slate-600'}`}>
+              <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
+            </div>
+            <span className="text-sm text-slate-300">Rollover stake <span className="text-slate-500 text-xs">(funded from previous winnings — stake excluded from stats)</span></span>
           </label>
 
           {error && <div className="text-sm text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-4 py-3">{error}</div>}

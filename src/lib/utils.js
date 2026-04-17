@@ -57,15 +57,25 @@ export const calcWinnings = (bet) => {
   const stake = parseFloat(bet.stake)
   const odds = parseFloat(bet.odds)
   // Bonus bets: stake not returned, so you only receive stake × (odds - 1)
+  // Rollover bets: full return counts (stake was from prior winnings, not own pocket)
   return bet.is_bonus_bet ? stake * (odds - 1) : stake * odds
 }
 
 export const calcProfitLoss = (bet) => {
-  if (bet.outcome === 'won') return parseFloat(bet.stake) * (parseFloat(bet.odds) - 1)
-  if (bet.outcome === 'lost') return bet.is_bonus_bet ? 0 : -parseFloat(bet.stake)
-  // void and pending both return 0 — stake is returned on void, not yet known on pending
+  const stake = parseFloat(bet.stake)
+  const odds = parseFloat(bet.odds)
+  if (bet.outcome === 'won') return stake * (odds - 1)
+  if (bet.outcome === 'lost') {
+    // Bonus bets and rollover bets: stake wasn't own money, so losing it = $0 impact
+    if (bet.is_bonus_bet || bet.is_rollover) return 0
+    return -stake
+  }
+  // void and pending: $0
   return 0
 }
+
+// Whether a bet's stake counts as real capital risked (excludes bonus & rollover stakes)
+export const isRealStake = (bet) => !bet.is_bonus_bet && !bet.is_rollover
 
 export const formatCurrency = (amount) => {
   const abs = Math.abs(amount).toFixed(2)
