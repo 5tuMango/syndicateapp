@@ -46,19 +46,23 @@ function CountdownBadge({ eventTime }) {
 function NextEventBar({ eventTime, legs }) {
   const now = useNow()
 
-  // Pick the target: single bet uses eventTime, multi uses earliest upcoming leg
+  // Pick the target: single bet uses eventTime, multi uses earliest leg with event_time
+  // Falls back to bet.event_time if no legs have individual event_times
   const { targetTime, targetDate } = (() => {
+    if (legs?.length) {
+      const withTime = legs
+        .filter((l) => l.event_time)
+        .map((l) => ({ t: l.event_time, d: eventTimeToDate(l.event_time) }))
+        .filter((l) => l.d)
+        .sort((a, b) => a.d - b.d)
+      // Prefer upcoming legs; if all are in the past fall back to earliest
+      const upcoming = withTime.filter((l) => l.d.getTime() > now)
+      const target = upcoming[0] || withTime[0]
+      if (target) return { targetTime: target.t, targetDate: target.d }
+    }
     if (eventTime) {
       const d = eventTimeToDate(eventTime)
       return { targetTime: eventTime, targetDate: d }
-    }
-    if (legs?.length) {
-      const upcoming = legs
-        .filter((l) => l.event_time)
-        .map((l) => ({ t: l.event_time, d: eventTimeToDate(l.event_time) }))
-        .filter((l) => l.d && l.d.getTime() > now)
-        .sort((a, b) => a.d - b.d)
-      if (upcoming.length) return { targetTime: upcoming[0].t, targetDate: upcoming[0].d }
     }
     return { targetTime: null, targetDate: null }
   })()
@@ -66,7 +70,8 @@ function NextEventBar({ eventTime, legs }) {
   if (!targetDate || !targetTime) return null
 
   const diff = targetDate - now
-  if (diff < -10800000) return null   // > 3h past
+  // Hide if > 4h past kickoff (game well and truly over)
+  if (diff < -14400000) return null
   const label = legs?.length ? 'Next leg' : 'Starts'
 
   if (diff <= 0) {
