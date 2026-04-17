@@ -24,15 +24,35 @@ export default function Profile() {
   }, [id])
 
   async function fetchData() {
-    const [profileRes, betsRes] = await Promise.all([
+    const [profileRes, personaRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', id).single(),
-      supabase
-        .from('bets')
-        .select('*, profiles(id, username, full_name), bet_legs(*)')
-        .eq('user_id', id),
+      supabase.from('personas').select('*').eq('claimed_by', id).maybeSingle(),
     ])
     setProfile(profileRes.data)
-    setBets(sortBetsByActivity(betsRes.data || []))
+
+    const persona = personaRes.data
+
+    // Fetch bets owned by this user OR assigned to their persona
+    let query = supabase
+      .from('bets')
+      .select('*, profiles(id, username, full_name), bet_legs(*)')
+
+    if (persona) {
+      // Use or filter: bets entered by this user with no persona, OR any bet assigned to their persona
+      query = query.or(`user_id.eq.${id},persona_id.eq.${persona.id}`)
+    } else {
+      query = query.eq('user_id', id)
+    }
+
+    const betsRes = await query
+    // Deduplicate (shouldn't happen, but in case user entered their own bets before persona existed)
+    const seen = new Set()
+    const unique = (betsRes.data || []).filter(b => {
+      if (seen.has(b.id)) return false
+      seen.add(b.id)
+      return true
+    })
+    setBets(sortBetsByActivity(unique))
     setLoading(false)
   }
 
