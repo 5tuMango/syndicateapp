@@ -88,7 +88,13 @@ export default function AddBet() {
   const set = (key, val) => setForm((p) => ({ ...p, [key]: val }))
   const addLeg = () => setLegs((p) => [...p, newLeg()])
   const removeLeg = (i) => setLegs((p) => p.filter((_, idx) => idx !== i))
-  const setLeg = (i, key, val) => setLegs((p) => p.map((leg, idx) => (idx === i ? { ...leg, [key]: val } : leg)))
+  const setLeg = (i, key, val) => {
+    setLegs((p) => p.map((leg, idx) => (idx === i ? { ...leg, [key]: val } : leg)))
+    // Keep bet date in sync with first leg's event_time on multis
+    if (i === 0 && key === 'event_time' && form.bet_type === 'multi' && val) {
+      set('date', val.substring(0, 10))
+    }
+  }
 
   useEffect(() => {
     if (!profile?.is_admin) return
@@ -150,7 +156,7 @@ export default function AddBet() {
       }))
 
       if (d.bet_type === 'multi' && Array.isArray(d.legs) && d.legs.length > 0) {
-        setLegs(d.legs.map((leg) => ({
+        const mappedLegs = d.legs.map((leg) => ({
           sport: normalizeSport(leg.sport) || '',
           event_time: leg.event_time ? leg.event_time.substring(0, 16) : '',
           event: leg.event || '',
@@ -160,7 +166,13 @@ export default function AddBet() {
           leg_group: leg.leg_group != null ? String(leg.leg_group) : '',
           group_odds: leg.group_odds != null ? String(leg.group_odds) : '',
           outcome: leg.outcome && ['won','lost','void'].includes(leg.outcome) ? leg.outcome : 'pending',
-        })))
+        }))
+        setLegs(mappedLegs)
+        // Default bet date to first leg's event_time date
+        const firstLegTime = mappedLegs.find((l) => l.event_time)?.event_time
+        if (firstLegTime) {
+          setForm((prev) => ({ ...prev, date: firstLegTime.substring(0, 10) }))
+        }
       }
 
       if (d.outcome && ['won','lost','void'].includes(d.outcome)) {
