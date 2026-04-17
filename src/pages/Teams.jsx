@@ -38,6 +38,7 @@ export default function Teams() {
 
   const [teams, setTeams] = useState([])
   const [profiles, setProfiles] = useState([])
+  const [personas, setPersonas] = useState([])
   const [bets, setBets] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -56,25 +57,41 @@ export default function Teams() {
 
   async function load() {
     setLoading(true)
-    const [{ data: teamsData }, { data: profilesData }, { data: betsData }] = await Promise.all([
+    const [{ data: teamsData }, { data: profilesData }, { data: personasData }, { data: betsData }] = await Promise.all([
       supabase.from('teams').select('*').order('created_at'),
       supabase.from('profiles').select('id, full_name, username, team_id, is_admin'),
+      supabase.from('personas').select('id, claimed_by'),
       supabase
         .from('bets')
-        .select('id, user_id, stake, odds, outcome')
+        .select('id, user_id, persona_id, stake, odds, outcome, is_bonus_bet')
         .neq('outcome', 'pending'),
     ])
     setTeams(teamsData || [])
     setProfiles(profilesData || [])
+    setPersonas(personasData || [])
     setBets(betsData || [])
     setLoading(false)
+  }
+
+  // Resolve the effective user_id for a bet:
+  // - if persona_id is set, use the persona's claimed_by user
+  // - otherwise use user_id directly
+  function betOwnerId(bet) {
+    if (bet.persona_id) {
+      const p = personas.find((p) => p.id === bet.persona_id)
+      return p?.claimed_by || null
+    }
+    return bet.user_id
   }
 
   // Build stats per team
   function teamStats(teamId) {
     const members = profiles.filter((p) => p.team_id === teamId)
     const memberIds = new Set(members.map((p) => p.id))
-    const teamBets = bets.filter((b) => memberIds.has(b.user_id))
+    const teamBets = bets.filter((b) => {
+      const ownerId = betOwnerId(b)
+      return ownerId && memberIds.has(ownerId)
+    })
     const resulted = teamBets.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
     const won = resulted.filter((b) => b.outcome === 'won').length
     const totalPL = teamBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
