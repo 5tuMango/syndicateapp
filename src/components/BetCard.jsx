@@ -200,9 +200,6 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
   const [checkMsg, setCheckMsg] = useState(null) // { type: 'ok'|'info'|'warn', text }
   const [uploadingResult, setUploadingResult] = useState(false)
 
-  // Admin outcome override
-  const [overridingOutcome, setOverridingOutcome] = useState(false)
-  const [overrideResult, setOverrideResult] = useState(bet.outcome)
   const [savingOverride, setSavingOverride] = useState(false)
 
   const isOwner = user?.id === bet.user_id
@@ -270,14 +267,13 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
     }
   }
 
-  const handleSaveOverride = async () => {
+  const handleSaveOverride = async (newOutcome) => {
     setSavingOverride(true)
     await supabase
       .from('bets')
-      .update({ outcome: overrideResult, updated_at: new Date().toISOString() })
+      .update({ outcome: newOutcome, updated_at: new Date().toISOString() })
       .eq('id', bet.id)
     setSavingOverride(false)
-    setOverridingOutcome(false)
     onUpdate?.(bet.id)
   }
 
@@ -460,15 +456,21 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
             </>
           )}
           {profile?.is_admin && (
-            <button
-              onClick={() => {
-                setOverrideResult(bet.outcome)
-                setOverridingOutcome((v) => !v)
-              }}
-              className="text-xs text-slate-400 hover:text-yellow-400 transition-colors"
+            <select
+              value={bet.outcome || 'pending'}
+              onChange={(e) => handleSaveOverride(e.target.value)}
+              disabled={savingOverride}
+              className={`text-xs px-1.5 py-0.5 rounded border bg-slate-800 focus:outline-none focus:border-slate-500 disabled:opacity-50 ${
+                bet.outcome === 'won' ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                : bet.outcome === 'lost' ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                : bet.outcome === 'void' ? 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+                : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+              }`}
             >
-              Override
-            </button>
+              {OVERRIDE_OUTCOMES.map(o => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
           )}
         </div>
       </div>
@@ -493,49 +495,6 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
           }`}
         >
           {checkMsg.text}
-        </div>
-      )}
-
-      {/* Admin outcome override UI */}
-      {overridingOutcome && (
-        <div className="bg-slate-900/80 rounded-lg px-3 py-3 space-y-3 border border-yellow-500/20">
-          <p className="text-xs text-yellow-400 font-semibold">Override outcome</p>
-          <div className="flex flex-wrap gap-2">
-            {OVERRIDE_OUTCOMES.map((o) => (
-              <button
-                key={o}
-                onClick={() => setOverrideResult(o)}
-                className={`text-xs px-2.5 py-1 rounded border capitalize transition-colors ${
-                  overrideResult === o
-                    ? o === 'won'
-                      ? 'bg-green-500/20 text-green-400 border-green-500/30 font-bold'
-                      : o === 'lost'
-                      ? 'bg-red-500/20 text-red-400 border-red-500/30 font-bold'
-                      : o === 'void'
-                      ? 'bg-slate-500/20 text-slate-300 border-slate-500/30 font-bold'
-                      : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30 font-bold'
-                    : 'border-slate-600 text-slate-400 hover:text-white'
-                }`}
-              >
-                {o}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={handleSaveOverride}
-              disabled={savingOverride}
-              className="text-xs bg-green-500 hover:bg-green-400 text-white font-semibold rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
-            >
-              {savingOverride ? 'Saving...' : 'Confirm'}
-            </button>
-            <button
-              onClick={() => setOverridingOutcome(false)}
-              className="text-xs border border-slate-600 text-slate-400 hover:text-white rounded-lg px-3 py-1.5 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
         </div>
       )}
 
