@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor, isRealStake } from '../lib/utils'
 import { usePersonas } from '../hooks/usePersonas'
 
 const RANK_COLORS = ['text-yellow-400', 'text-slate-300', 'text-amber-600']
@@ -78,7 +78,7 @@ export default function Leaderboard() {
     const pending = memberBets.filter((b) => b.outcome === 'pending').length
     const voided = memberBets.filter((b) => b.outcome === 'void').length
     const pl = memberBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
-    const staked = memberBets.filter((b) => b.outcome !== 'void').reduce((sum, b) => sum + parseFloat(b.stake), 0)
+    const staked = memberBets.filter((b) => b.outcome !== 'void' && isRealStake(b)).reduce((sum, b) => sum + parseFloat(b.stake), 0)
     const winnings = memberBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + calcWinnings(b), 0)
     // Bet Boldness: avg(stake × odds) per bet — rewards both big stakes AND long odds
     // Risk Profile: sum(stake × odds) / total staked = stake-weighted avg odds — pure measure of how risky your selections are
@@ -307,6 +307,7 @@ export default function Leaderboard() {
                         {member.pending > 0 && <span className="text-yellow-400">{member.pending}P</span>}
                         {member.voided > 0 && <span className="text-slate-500">{member.voided}V</span>}
                         <span>· ${member.staked.toFixed(2)} staked</span>
+                        {member.bonusBetsUsed > 0 && <span className="text-amber-400">· ${member.bonusBetsUsed.toFixed(2)} bonus</span>}
                       </div>
                     ) : (
                       <p className="text-xs text-slate-500 mt-0.5">No bets yet</p>
