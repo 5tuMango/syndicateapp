@@ -205,6 +205,7 @@ export default function AddBet() {
         odds: d.odds != null ? String(d.odds) : prev.odds,
         stake: d.stake != null ? String(d.stake) : prev.stake,
         event_time: d.event_time ? fixYear(d.event_time.substring(0, 16)) : prev.event_time,
+        date: (d.bet_type !== 'multi' && d.event_time) ? fixYear(d.event_time).substring(0, 10) : prev.date,
         is_bonus_bet: d.is_bonus_bet === true ? true : prev.is_bonus_bet,
         bet_return_text: d.bet_return_text || prev.bet_return_text,
         bet_return_value: d.bet_return_value != null ? String(d.bet_return_value) : prev.bet_return_value,
@@ -456,7 +457,10 @@ export default function AddBet() {
             {form.bet_type === 'single' && (
               <div>
                 <label className={lbl}>Event Date & Time AEST (optional)</label>
-                <input type="datetime-local" value={form.event_time} onChange={(e) => set('event_time', e.target.value)} className={inp} />
+                <input type="datetime-local" value={form.event_time} onChange={(e) => {
+                  set('event_time', e.target.value)
+                  if (e.target.value) set('date', e.target.value.substring(0, 10))
+                }} className={inp} />
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">
@@ -739,7 +743,10 @@ export default function AddBet() {
                 className="w-full bg-transparent text-white font-semibold text-base focus:outline-none placeholder-slate-600"
               />
               {form.bet_type === 'single' && (
-                <input type="datetime-local" value={form.event_time} onChange={(e) => set('event_time', e.target.value)} className="mt-1 text-xs bg-transparent border-0 text-slate-500 focus:outline-none w-full" />
+                <input type="datetime-local" value={form.event_time} onChange={(e) => {
+                  set('event_time', e.target.value)
+                  if (e.target.value) set('date', e.target.value.substring(0, 10))
+                }} className="mt-1 text-xs bg-transparent border-0 text-slate-500 focus:outline-none w-full" />
               )}
             </div>
 
