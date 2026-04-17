@@ -46,8 +46,6 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
   const stake = parseFloat(multi.stake || 0)
   const winnings = outcome === 'won' && odds != null ? stake * odds : 0
   const pl = outcome === 'won' ? winnings - stake : outcome === 'lost' ? -stake : 0
-  const allResolved = legs.length > 0 && legs.every(l => l.outcome !== 'pending')
-
   const handleResultUpload = async (e) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
@@ -145,20 +143,18 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
             {expanded ? `Hide legs ▴` : `${legs.length} legs ▾`}
           </button>
 
-          {/* Upload results — always show for admin, only when pending for others */}
-          {(isAdmin || !allResolved) && (
-            <label className={`text-xs cursor-pointer transition-colors ${uploading ? 'text-slate-500' : 'text-slate-400 hover:text-blue-400'}`}>
-              {uploading ? 'Reading…' : '📷 Results'}
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                disabled={uploading}
-                onChange={handleResultUpload}
-              />
-            </label>
-          )}
+          {/* Upload results — always visible */}
+          <label className={`text-xs cursor-pointer transition-colors ${uploading ? 'text-slate-500' : 'text-slate-400 hover:text-blue-400'}`}>
+            {uploading ? 'Reading…' : '📷 Results'}
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              disabled={uploading}
+              onChange={handleResultUpload}
+            />
+          </label>
 
           <Link
             to="/weekly-multi"
