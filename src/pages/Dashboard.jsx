@@ -153,14 +153,27 @@ export default function Dashboard() {
       : 0,
   }), [individStats, weeklyStats, filteredBets, weeklyMultis])
 
-  // Kitty: total contributions + running P&L across ALL bets (unfiltered)
+  // Kitty: total contributions + settled P&L − pending stakes (committed, can't retrieve)
   const kitty = useMemo(() => {
     const totalPaid = personaList.reduce((s, p) => s + parseFloat(p.amount_paid || 0), 0)
     const totalTarget = personaList.reduce((s, p) => s + parseFloat(p.contribution_target || 400), 0)
-    const allBetsPL = bets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
-    const balance = totalPaid + allBetsPL + weeklyStats.pl
-    return { totalPaid, totalTarget, toPay: totalTarget - totalPaid, balance }
-  }, [personaList, bets, weeklyStats])
+    // Only settled bets affect P&L; pending bets are treated as a deduction (stake already out)
+    const settledPL = bets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
+    // Deduct real pending stakes (bonus bets are free — no real money at risk)
+    const pendingStakes = bets
+      .filter(b => b.outcome === 'pending' && !b.is_bonus_bet)
+      .reduce((sum, b) => sum + parseFloat(b.stake), 0)
+    // Weekly multis: deduct stakes for any still-pending multis
+    const pendingWeeklyStakes = weeklyMultis
+      .filter(m => {
+        const legs = m.weekly_multi_legs || []
+        const nonVoid = legs.filter(l => l.outcome !== 'void')
+        return nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending')
+      })
+      .reduce((sum, m) => sum + parseFloat(m.stake || 0), 0)
+    const balance = totalPaid + settledPL + weeklyStats.pl - pendingStakes - pendingWeeklyStakes
+    return { totalPaid, totalTarget, toPay: totalTarget - totalPaid, balance, pendingStakes: pendingStakes + pendingWeeklyStakes }
+  }, [personaList, bets, weeklyMultis, weeklyStats])
 
   const handleDelete = (id) => setBets((prev) => prev.filter((b) => b.id !== id))
 
@@ -250,6 +263,7 @@ export default function Dashboard() {
           </div>
           <p className="text-xs text-slate-500 mt-1.5">
             {Math.round((kitty.totalPaid / kitty.totalTarget) * 100)}% collected · {personaList.filter(p => parseFloat(p.amount_paid || 0) >= parseFloat(p.contribution_target || 400)).length}/{personaList.length} members fully paid
+            {kitty.pendingStakes > 0 && <span className="text-yellow-500"> · ${kitty.pendingStakes.toFixed(2)} in pending bets</span>}
           </p>
         </div>
       )}
