@@ -37,6 +37,7 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
 
   const [expanded, setExpanded] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [msg, setMsg] = useState(null)
   const [savingLeg, setSavingLeg] = useState({})
 
@@ -46,6 +47,33 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
   const stake = parseFloat(multi.stake || 0)
   const winnings = outcome === 'won' && odds != null ? stake * odds : 0
   const pl = outcome === 'won' ? winnings - stake : outcome === 'lost' ? -stake : 0
+  const handleCheck = async () => {
+    setChecking(true)
+    setMsg(null)
+    try {
+      const res = await fetch('/api/check-weekly-results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ multiId: multi.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Server error')
+      if (data.checked === 0) {
+        setMsg({ type: 'info', text: 'No pending legs to check.' })
+      } else {
+        setMsg({
+          type: 'ok',
+          text: `Checked ${data.checked} leg${data.checked !== 1 ? 's' : ''} — ${data.multiOutcome.toUpperCase()}. ${data.message || 'Refreshing…'}`,
+        })
+        onUpdate?.()
+      }
+    } catch (err) {
+      setMsg({ type: 'warn', text: `Error: ${err.message}` })
+    } finally {
+      setChecking(false)
+    }
+  }
+
   const handleResultUpload = async (e) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
@@ -141,6 +169,14 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
             className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
           >
             {expanded ? `Hide legs ▴` : `${legs.length} legs ▾`}
+          </button>
+
+          <button
+            onClick={handleCheck}
+            disabled={checking || uploading}
+            className="text-xs text-yellow-400 hover:text-yellow-300 disabled:opacity-50 transition-colors"
+          >
+            {checking ? 'Checking…' : '🔍 Check'}
           </button>
 
           {/* Upload results — always visible */}
