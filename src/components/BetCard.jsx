@@ -534,8 +534,8 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
       {/* Next event countdown bar — visible on collapsed card for pending bets */}
       {bet.outcome === 'pending' && (
         <NextEventBar
-          eventTime={!isMulti ? bet.event_time : null}
-          legs={isMulti ? legs : null}
+          eventTime={bet.event_time}
+          legs={legs}
         />
       )}
 
