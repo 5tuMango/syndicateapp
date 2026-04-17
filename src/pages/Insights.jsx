@@ -23,7 +23,7 @@ const LINE_COLORS = [
 ]
 
 export default function Insights() {
-  const { byUserId: personaMap } = usePersonas()
+  const { byUserId: personaMap, byPersonaId } = usePersonas()
   const [bets, setBets] = useState([])
   const [members, setMembers] = useState([])
   const [weeklyMultis, setWeeklyMultis] = useState([])
@@ -67,18 +67,19 @@ export default function Insights() {
     let runningWinnings = 0
     return dates.map((date) => {
       resolved.filter((b) => b.date === date).forEach((b) => {
-        runningPL[b.user_id] = (runningPL[b.user_id] || 0) + calcProfitLoss(b)
+        const mid = betMemberId(b)
+        runningPL[mid] = (runningPL[mid] || 0) + calcProfitLoss(b)
         if (b.outcome === 'won') {
           runningWinnings += parseFloat(b.stake) * parseFloat(b.odds)
         }
       })
       const point = { date: formatChartDate(date), __winnings: parseFloat(runningWinnings.toFixed(2)) }
       members.forEach((m) => {
-        point[m.id] = parseFloat(runningPL[m.id].toFixed(2))
+        point[m.id] = parseFloat((runningPL[m.id] || 0).toFixed(2))
       })
       return point
     })
-  }, [bets, members])
+  }, [bets, members, byPersonaId])
 
   // ── Strike rate table (7d / 30d / all-time) ───────────────────────────────
   const strikeRates = useMemo(() => {
@@ -89,7 +90,7 @@ export default function Insights() {
       all: '1970-01-01',
     }
     return members.map((m) => {
-      const mb = bets.filter((b) => b.user_id === m.id)
+      const mb = bets.filter((b) => betMemberId(b) === m.id)
       const rates = {}
       for (const [label, cutoff] of Object.entries(cutoffs)) {
         const period = mb.filter((b) => b.date >= cutoff && b.outcome !== 'void')
@@ -106,7 +107,7 @@ export default function Insights() {
         : null
       return { ...m, ...rates, daysSinceWin }
     })
-  }, [bets, members])
+  }, [bets, members, byPersonaId])
 
   // ── Win rate by sport — based on individual legs (includes multi legs) ──────
   const bySport = useMemo(() => {
@@ -116,11 +117,11 @@ export default function Insights() {
       if (legs.length > 0) {
         return legs
           .filter((l) => l.outcome === 'won' || l.outcome === 'lost')
-          .map((l) => ({ sport: l.sport || b.sport, outcome: l.outcome, user_id: b.user_id }))
+          .map((l) => ({ sport: l.sport || b.sport, outcome: l.outcome, user_id: betMemberId(b) }))
       }
       // Single bets with no legs — use the bet itself
       if (b.outcome === 'won' || b.outcome === 'lost') {
-        return [{ sport: b.sport, outcome: b.outcome, user_id: b.user_id }]
+        return [{ sport: b.sport, outcome: b.outcome, user_id: betMemberId(b) }]
       }
       return []
     })
@@ -140,12 +141,12 @@ export default function Insights() {
         return { member: m, sportRows }
       }),
     }
-  }, [bets, members])
+  }, [bets, members, byPersonaId])
 
   // ── Multi bet stats ───────────────────────────────────────────────────────
   const multiStats = useMemo(() => {
     return members.map((m) => {
-      const multis = bets.filter((b) => b.user_id === m.id && b.bet_type === 'multi')
+      const multis = bets.filter((b) => betMemberId(b) === m.id && b.bet_type === 'multi')
       const resolved = multis.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
       const won = resolved.filter((b) => b.outcome === 'won').length
 
@@ -177,12 +178,12 @@ export default function Insights() {
         pl: multis.reduce((s, b) => s + calcProfitLoss(b), 0),
       }
     })
-  }, [bets, members])
+  }, [bets, members, byPersonaId])
 
   // ── Risk profile ─────────────────────────────────────────────────────────
   const riskProfiles = useMemo(() => {
     return members.map((m) => {
-      const mb = bets.filter((b) => b.user_id === m.id && b.outcome !== 'void')
+      const mb = bets.filter((b) => betMemberId(b) === m.id && b.outcome !== 'void')
       if (mb.length === 0) return { member: m, empty: true }
       const avgOdds = mb.reduce((s, b) => s + parseFloat(b.odds), 0) / mb.length
       const avgStake = mb.reduce((s, b) => s + parseFloat(b.stake), 0) / mb.length
@@ -218,7 +219,7 @@ export default function Insights() {
 
       return { member: m, avgOdds, avgStake, pctMulti, winRate, bestWin, stakeByOdds, betBoldness, riskProfile, empty: false }
     })
-  }, [bets, members])
+  }, [bets, members, byPersonaId])
 
   // ── Leg type win rates ────────────────────────────────────────────────────
   const legTypeStats = useMemo(() => {
@@ -226,7 +227,7 @@ export default function Insights() {
     const resolvedLegs = bets.flatMap((b) =>
       (b.bet_legs || [])
         .filter((l) => l.outcome === 'won' || l.outcome === 'lost')
-        .map((l) => ({ ...l, user_id: b.user_id }))
+        .map((l) => ({ ...l, user_id: betMemberId(b) }))
     )
 
     // Get unique market types (descriptions)
@@ -245,7 +246,7 @@ export default function Insights() {
         return { member: m, rows }
       }),
     }
-  }, [bets, members])
+  }, [bets, members, byPersonaId])
 
   // ── Weekly multi insights ─────────────────────────────────────────────────
   const TOTAL_WEEKS = 33
@@ -292,6 +293,15 @@ export default function Insights() {
   }
 
   const noData = bets.length === 0
+
+  // Resolve the effective member ID for a bet — persona_id takes priority over user_id
+  const betMemberId = (bet) => {
+    if (bet.persona_id && byPersonaId[bet.persona_id]?.claimed_by) {
+      return byPersonaId[bet.persona_id].claimed_by
+    }
+    return bet.user_id
+  }
+
   const displayName = (m) => {
     const p = personaMap[m.id]
     return p ? `${p.emoji} ${p.nickname}` : (m.full_name || m.username)
