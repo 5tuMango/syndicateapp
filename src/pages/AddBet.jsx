@@ -31,6 +31,22 @@ const normalizeSport = (raw) => {
   return match || 'Other'
 }
 
+// Correct dates where the AI extracted the wrong year (e.g. 2025 instead of 2026)
+const fixYear = (dateStr) => {
+  if (!dateStr) return dateStr
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  if (d.getFullYear() < currentYear) {
+    d.setFullYear(currentYear)
+    // If bumping to current year still puts it in the past, push to next year
+    if (d < now) d.setFullYear(currentYear + 1)
+    return d.toISOString().substring(0, dateStr.length <= 10 ? 10 : 16)
+  }
+  return dateStr
+}
+
 const fileToBase64 = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -149,7 +165,7 @@ export default function AddBet() {
         bet_type: d.bet_type === 'multi' ? 'multi' : d.bet_type === 'single' ? 'single' : prev.bet_type,
         odds: d.odds != null ? String(d.odds) : prev.odds,
         stake: d.stake != null ? String(d.stake) : prev.stake,
-        event_time: d.event_time ? d.event_time.substring(0, 16) : prev.event_time,
+        event_time: d.event_time ? fixYear(d.event_time.substring(0, 16)) : prev.event_time,
         is_bonus_bet: d.is_bonus_bet === true ? true : prev.is_bonus_bet,
         bet_return_text: d.bet_return_text || prev.bet_return_text,
         bet_return_value: d.bet_return_value != null ? String(d.bet_return_value) : prev.bet_return_value,
@@ -158,7 +174,7 @@ export default function AddBet() {
       if (d.bet_type === 'multi' && Array.isArray(d.legs) && d.legs.length > 0) {
         const mappedLegs = d.legs.map((leg) => ({
           sport: normalizeSport(leg.sport) || '',
-          event_time: leg.event_time ? leg.event_time.substring(0, 16) : '',
+          event_time: leg.event_time ? fixYear(leg.event_time.substring(0, 16)) : '',
           event: leg.event || '',
           description: leg.description || '',
           selection: leg.selection || '',
