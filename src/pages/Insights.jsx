@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
-import { calcProfitLoss, formatCurrency, profitLossColor, SPORTS } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor, SPORTS } from '../lib/utils'
 
 const TABS = ['Overview', 'By Sport', 'Leg Types', 'Multi Bets', 'Risk Profile', 'Weekly']
 
@@ -60,34 +60,57 @@ export default function Insights() {
     return bet.user_id
   }
 
-  // ── Total winnings (payout from won bets only) ────────────────────────────
+  // ── Total winnings (payout from won bets + weekly multis) ────────────────
   const totalWinnings = useMemo(() => {
-    return bets
-      .filter((b) => b.outcome === 'won')
-      .reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
-  }, [bets])
+    const indiv = bets.reduce((sum, b) => sum + calcWinnings(b), 0)
+    const weekly = weeklyMultis.reduce((sum, m) => {
+      const legs = m.weekly_multi_legs || []
+      const nonVoid = legs.filter(l => l.outcome !== 'void')
+      if (nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending') || nonVoid.some(l => l.outcome === 'lost')) return sum
+      const validLegs = legs.filter(l => l.odds != null && parseFloat(l.odds) > 0)
+      const combo = validLegs.reduce((acc, l) => acc * parseFloat(l.odds), 1)
+      return sum + parseFloat(m.stake || 0) * combo
+    }, 0)
+    return indiv + weekly
+  }, [bets, weeklyMultis])
 
   // ── Cumulative P&L + cumulative winnings chart data ───────────────────────
   const pnlChartData = useMemo(() => {
     const resolved = bets.filter((b) => b.outcome !== 'pending')
-    const dates = [...new Set(resolved.map((b) => b.date))].sort()
+
+    // Compute resolved weekly multi winnings keyed by date
+    const weeklyWinByDate = {}
+    for (const m of weeklyMultis) {
+      const legs = m.weekly_multi_legs || []
+      const nonVoid = legs.filter(l => l.outcome !== 'void')
+      if (nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending') || nonVoid.some(l => l.outcome === 'lost')) continue
+      const validLegs = legs.filter(l => l.odds != null && parseFloat(l.odds) > 0)
+      const combo = validLegs.reduce((acc, l) => acc * parseFloat(l.odds), 1)
+      const date = (m.created_at || '').slice(0, 10)
+      weeklyWinByDate[date] = (weeklyWinByDate[date] || 0) + parseFloat(m.stake || 0) * combo
+    }
+
+    const allDates = [...new Set([
+      ...resolved.map(b => b.date),
+      ...Object.keys(weeklyWinByDate),
+    ])].sort()
+
     const runningPL = Object.fromEntries(members.map((m) => [m.id, 0]))
     let runningWinnings = 0
-    return dates.map((date) => {
+    return allDates.map((date) => {
       resolved.filter((b) => b.date === date).forEach((b) => {
         const mid = betMemberId(b)
         runningPL[mid] = (runningPL[mid] || 0) + calcProfitLoss(b)
-        if (b.outcome === 'won') {
-          runningWinnings += parseFloat(b.stake) * parseFloat(b.odds)
-        }
+        runningWinnings += calcWinnings(b)
       })
+      runningWinnings += weeklyWinByDate[date] || 0
       const point = { date: formatChartDate(date), __winnings: parseFloat(runningWinnings.toFixed(2)) }
       members.forEach((m) => {
         point[m.id] = parseFloat((runningPL[m.id] || 0).toFixed(2))
       })
       return point
     })
-  }, [bets, members, byPersonaId])
+  }, [bets, weeklyMultis, members, byPersonaId])
 
   // ── Strike rate table (7d / 30d / all-time) ───────────────────────────────
   const strikeRates = useMemo(() => {
