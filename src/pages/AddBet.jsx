@@ -34,14 +34,11 @@ const normalizeSport = (raw) => {
 // Correct dates where the AI extracted the wrong year (e.g. 2025 instead of 2026)
 const fixYear = (dateStr) => {
   if (!dateStr) return dateStr
-  const now = new Date()
-  const currentYear = now.getFullYear()
+  const currentYear = new Date().getFullYear()
   const d = new Date(dateStr)
   if (isNaN(d.getTime())) return dateStr
   if (d.getFullYear() < currentYear) {
     d.setFullYear(currentYear)
-    // If bumping to current year still puts it in the past, push to next year
-    if (d < now) d.setFullYear(currentYear + 1)
     return d.toISOString().substring(0, dateStr.length <= 10 ? 10 : 16)
   }
   return dateStr
