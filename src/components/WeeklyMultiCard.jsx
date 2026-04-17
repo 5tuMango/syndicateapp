@@ -1,9 +1,74 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { formatCurrency, profitLossColor } from '../lib/utils'
+import { formatCurrency, profitLossColor, eventTimeToDate, formatEventTime } from '../lib/utils'
 import { usePersonas } from '../hooks/usePersonas'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+
+function useNow() {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return now
+}
+
+function formatDiff(ms) {
+  const d = Math.floor(ms / 86400000)
+  const h = Math.floor((ms % 86400000) / 3600000)
+  const m = Math.floor((ms % 3600000) / 60000)
+  const s = Math.floor((ms % 60000) / 1000)
+  const parts = []
+  if (d > 0) parts.push(`${d}d`)
+  if (h > 0) parts.push(`${h}h`)
+  if (m > 0) parts.push(`${m}m`)
+  parts.push(`${s}s`)
+  return parts.join(' ')
+}
+
+function CountdownBadge({ eventTime }) {
+  const now = useNow()
+  if (!eventTime) return null
+  const target = eventTimeToDate(eventTime)
+  if (!target) return null
+  const diff = target - now
+  if (diff < -10800000) return null
+  if (diff <= 0) return <span className="text-red-400 text-xs font-semibold animate-pulse">● Live</span>
+  const color = diff >= 86400000 ? 'text-slate-400' : diff < 3600000 ? 'text-orange-400' : 'text-yellow-400'
+  return <span className={`${color} text-xs font-medium tabular-nums`}>⏱ {formatDiff(diff)}</span>
+}
+
+function NextEventBar({ legs }) {
+  const now = useNow()
+  const upcoming = legs
+    .filter(l => l.event_time && (l.outcome === 'pending' || !l.outcome))
+    .map(l => ({ t: l.event_time, d: eventTimeToDate(l.event_time) }))
+    .filter(l => l.d)
+    .sort((a, b) => a.d - b.d)
+  if (!upcoming.length) return null
+  const { t, d } = upcoming[0]
+  const diff = d - now
+  if (diff < -10800000) return null
+  if (diff <= 0) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30">
+        <span className="text-slate-400 text-xs">Next leg:</span>
+        <span className="text-red-400 text-sm font-semibold animate-pulse">● Live now</span>
+        <span className="text-slate-500 text-xs ml-auto">{formatEventTime(t)}</span>
+      </div>
+    )
+  }
+  const color = diff >= 86400000 ? 'text-slate-200' : diff < 3600000 ? 'text-orange-400' : 'text-yellow-400'
+  const bg    = diff >= 86400000 ? 'bg-slate-700/40 border-slate-600/40' : diff < 3600000 ? 'bg-orange-500/10 border-orange-500/30' : 'bg-yellow-500/10 border-yellow-500/30'
+  return (
+    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${bg}`}>
+      <span className="text-slate-400 text-xs">Next leg:</span>
+      <span className={`${color} text-sm font-bold tabular-nums`}>{formatDiff(diff)}</span>
+      <span className="text-slate-500 text-xs ml-auto">{formatEventTime(t)}</span>
+    </div>
+  )
+}
 
 function combinedOdds(legs) {
   const entered = legs.filter(l => l.odds != null && parseFloat(l.odds) > 0)
@@ -201,6 +266,9 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
         </div>
       </div>
 
+      {/* Next leg countdown — shown when multi is still pending */}
+      {outcome === 'pending' && <NextEventBar legs={legs} />}
+
       {/* Result message */}
       {msg && (
         <div className={`text-xs px-3 py-2 rounded-lg border ${
@@ -222,17 +290,25 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
             return (
               <div key={leg.id} className="bg-slate-900/80 rounded-md px-3 py-2 flex items-center justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <span className="text-base mr-2">{label}</span>
-                  {leg.selection || leg.event ? (
-                    <>
-                      <span className="text-sm text-white">{leg.event}</span>
-                      {leg.description && <span className="text-slate-400 text-sm"> — {leg.description}</span>}
-                      {leg.selection && <span className="text-green-400 text-sm font-medium"> · {leg.selection}</span>}
-                    </>
-                  ) : leg.raw_pick ? (
-                    <span className="text-slate-300 text-sm italic">{leg.raw_pick}</span>
-                  ) : (
-                    <span className="text-slate-600 text-xs italic">No pick</span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-base mr-1">{label}</span>
+                    {leg.selection || leg.event ? (
+                      <>
+                        <span className="text-sm text-white">{leg.event}</span>
+                        {leg.description && <span className="text-slate-400 text-sm"> — {leg.description}</span>}
+                        {leg.selection && <span className="text-green-400 text-sm font-medium"> · {leg.selection}</span>}
+                      </>
+                    ) : leg.raw_pick ? (
+                      <span className="text-slate-300 text-sm italic">{leg.raw_pick}</span>
+                    ) : (
+                      <span className="text-slate-600 text-xs italic">No pick</span>
+                    )}
+                  </div>
+                  {leg.event_time && (
+                    <div className="flex items-center gap-2 mt-0.5 ml-7">
+                      <span className="text-slate-500 text-xs">{formatEventTime(leg.event_time)}</span>
+                      <CountdownBadge eventTime={leg.event_time} />
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
