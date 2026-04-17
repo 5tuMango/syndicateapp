@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { calcProfitLoss, calcWinnings, formatCurrency, outcomeBadge, profitLossColor, eventTimeToDate, formatEventTime } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, outcomeBadge, profitLossColor, eventTimeToDate, formatEventTime, evaluateBetReturn } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import { usePersonas } from '../hooks/usePersonas'
 
@@ -312,10 +312,12 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
 
   const handleSaveOverride = async (newOutcome) => {
     setSavingOverride(true)
-    await supabase
-      .from('bets')
-      .update({ outcome: newOutcome, updated_at: new Date().toISOString() })
-      .eq('id', bet.id)
+    const update = { outcome: newOutcome, updated_at: new Date().toISOString() }
+    if (bet.bet_return_text && bet.bet_return_value > 0) {
+      const earned = evaluateBetReturn(bet.bet_return_text, newOutcome, legs)
+      if (earned !== null) update.bet_return_earned = earned
+    }
+    await supabase.from('bets').update(update).eq('id', bet.id)
     setSavingOverride(false)
     onUpdate?.(bet.id)
   }
@@ -326,10 +328,12 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
     // Derive new parent outcome from updated legs list
     const updatedLegs = legs.map(l => l.id === legId ? { ...l, outcome: newOutcome } : l)
     const parentOutcome = deriveBetOutcome(updatedLegs)
-    await supabase
-      .from('bets')
-      .update({ outcome: parentOutcome, updated_at: new Date().toISOString() })
-      .eq('id', bet.id)
+    const update = { outcome: parentOutcome, updated_at: new Date().toISOString() }
+    if (bet.bet_return_text && bet.bet_return_value > 0) {
+      const earned = evaluateBetReturn(bet.bet_return_text, parentOutcome, updatedLegs)
+      if (earned !== null) update.bet_return_earned = earned
+    }
+    await supabase.from('bets').update(update).eq('id', bet.id)
     onUpdate?.(bet.id)
   }
 

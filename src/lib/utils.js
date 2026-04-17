@@ -130,3 +130,36 @@ export function sortBetsByActivity(bets) {
     }
   })
 }
+
+/**
+ * Evaluate whether a bet return was earned based on the terms text and bet outcome.
+ * Returns true (earned), false (not earned), or null (needs manual review / online check).
+ */
+export function evaluateBetReturn(betReturnText, outcome, legs = []) {
+  if (!betReturnText || !outcome || outcome === 'pending') return null
+  const text = betReturnText.toLowerCase()
+  const lostLegs = legs.filter(l => l.outcome === 'lost').length
+
+  // "if 1 leg fails" / "if one leg fails"
+  if (/\b1 leg fail|\bone leg fail/.test(text)) {
+    return lostLegs === 1
+  }
+  // "if 2 legs fail"
+  if (/\b2 legs? fail/.test(text)) {
+    return lostLegs === 2
+  }
+  // "if any leg fails" / "if ANY leg" / "any legs of your ... fail"
+  if (/any legs? (of your .+)?fail|if any leg/.test(text)) {
+    return outcome === 'lost'
+  }
+  // Simple loss: "if it loses", "if this bet loses", "if your selection loses", "if your multi loses"
+  if (/if (it|this bet|your (selection|multi|bet)) loses?/.test(text)) {
+    return outcome === 'lost'
+  }
+  // Racing placement: "runs 2nd or 3rd", "runs second or third" → needs result check
+  if (/runs? (2nd|second|3rd|third)|place(?:s|d)?/.test(text)) {
+    return null
+  }
+  // Unknown terms → needs manual review
+  return null
+}

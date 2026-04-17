@@ -101,14 +101,27 @@ export default function Dashboard() {
 
   const weeklyStats = useMemo(() => calcWeeklyStats(weeklyMultis), [weeklyMultis])
 
-  // Bet returns earned but not yet claimed (lost bets with a bet_return_value, last 21 days, not marked used)
+  // Confirmed earned bet returns (terms evaluated to true)
   const availableBetReturns = useMemo(() => {
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - 21)
     return bets.filter((b) =>
-      b.outcome === 'lost' &&
+      b.bet_return_earned === true &&
       b.bet_return_value > 0 &&
       !b.bet_return_claimed &&
+      new Date(b.date) >= cutoff
+    ).sort((a, b) => b.date.localeCompare(a.date))
+  }, [bets])
+
+  // Bet returns that need manual review (terms unknown — e.g. racing placement)
+  const pendingBetReturnReview = useMemo(() => {
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 21)
+    return bets.filter((b) =>
+      b.bet_return_earned == null &&
+      b.bet_return_value > 0 &&
+      !b.bet_return_claimed &&
+      b.outcome !== 'pending' &&
       new Date(b.date) >= cutoff
     ).sort((a, b) => b.date.localeCompare(a.date))
   }, [bets])
@@ -116,6 +129,11 @@ export default function Dashboard() {
   async function markBetReturnUsed(betId) {
     await supabase.from('bets').update({ bet_return_claimed: true }).eq('id', betId)
     setBets((prev) => prev.map((b) => b.id === betId ? { ...b, bet_return_claimed: true } : b))
+  }
+
+  async function confirmBetReturn(betId, earned) {
+    await supabase.from('bets').update({ bet_return_earned: earned }).eq('id', betId)
+    setBets((prev) => prev.map((b) => b.id === betId ? { ...b, bet_return_earned: earned } : b))
   }
 
   const combined = useMemo(() => ({
@@ -233,7 +251,33 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Available bet returns */}
+      {/* Bet returns needing review (racing placements / unknown terms) */}
+      {pendingBetReturnReview.length > 0 && (
+        <div className="bg-amber-900/20 border border-amber-700/40 rounded-xl px-4 py-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-amber-400">⚠ Bet Returns — Needs Review</span>
+            <span className="text-xs text-slate-500">Terms require manual check (e.g. placed 2nd/3rd)</span>
+          </div>
+          <div className="space-y-1.5">
+            {pendingBetReturnReview.map((b) => {
+              const persona = (b.persona_id && byPersonaId[b.persona_id]) || personaMap[b.user_id]
+              const name = persona ? `${persona.emoji} ${persona.nickname}` : '?'
+              return (
+                <div key={b.id} className="flex items-center gap-3 text-sm flex-wrap">
+                  <span className="text-slate-300 font-medium">{name}</span>
+                  <span className="text-amber-400 font-semibold">${parseFloat(b.bet_return_value).toFixed(2)}</span>
+                  {b.bet_return_text && <span className="text-slate-500 text-xs truncate flex-1">{b.bet_return_text}</span>}
+                  <span className="text-slate-500 text-xs shrink-0 capitalize">{b.outcome}</span>
+                  <button onClick={() => confirmBetReturn(b.id, true)} className="text-xs px-2 py-0.5 rounded border border-green-600 text-green-400 hover:bg-green-500/10 transition-colors shrink-0">✓ Earned</button>
+                  <button onClick={() => confirmBetReturn(b.id, false)} className="text-xs px-2 py-0.5 rounded border border-red-700 text-red-400 hover:bg-red-500/10 transition-colors shrink-0">✗ Not earned</button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmed available bet returns */}
       {availableBetReturns.length > 0 && (
         <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-xl px-4 py-3 space-y-2">
           <div className="flex items-center gap-2">

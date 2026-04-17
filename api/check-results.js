@@ -2,6 +2,18 @@
 // POST /api/check-results  { betId: 'uuid' }       → check a single bet
 // GET  /api/check-results  (with cron auth header)  → check all pending bets
 
+function evaluateBetReturn(betReturnText, outcome, legs = []) {
+  if (!betReturnText || !outcome || outcome === 'pending') return null
+  const text = betReturnText.toLowerCase()
+  const lostLegs = legs.filter(l => l.outcome === 'lost').length
+  if (/\b1 leg fail|\bone leg fail/.test(text)) return lostLegs === 1
+  if (/\b2 legs? fail/.test(text)) return lostLegs === 2
+  if (/any legs? (of your .+)?fail|if any leg/.test(text)) return outcome === 'lost'
+  if (/if (it|this bet|your (selection|multi|bet)) loses?/.test(text)) return outcome === 'lost'
+  if (/runs? (2nd|second|3rd|third)|place(?:s|d)?/.test(text)) return null
+  return null
+}
+
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
 const MODEL = 'claude-haiku-4-5-20251001'
 const MODEL_SEARCH = 'claude-sonnet-4-6' // Sonnet for web search — Haiku doesn't reliably use tools
@@ -51,8 +63,8 @@ export default async function handler(req, res) {
     // Cron (no betId): fetch ONE pending bet at a time to stay within 30s timeout
     // Only check bets where the date is today or in the past — future bets can't be resolved yet
     const today = new Date().toISOString().slice(0, 10)
-    let fetchUrl = `${SUPABASE_URL}/rest/v1/bets?outcome=eq.pending&date=lte.${today}&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)&order=date.asc&limit=2`
-    if (betId) fetchUrl = `${SUPABASE_URL}/rest/v1/bets?id=eq.${betId}&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_legs(*)`
+    let fetchUrl = `${SUPABASE_URL}/rest/v1/bets?outcome=eq.pending&date=lte.${today}&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_return_text,bet_return_value,bet_legs(*)&order=date.asc&limit=2`
+    if (betId) fetchUrl = `${SUPABASE_URL}/rest/v1/bets?id=eq.${betId}&select=id,date,sport,event,bet_type,odds,stake,event_time,user_id,notes,bet_return_text,bet_return_value,bet_legs(*)`
 
     const betsRes = await sbFetch(fetchUrl, 'GET', null, SUPABASE_URL, SUPABASE_KEY)
     const bets = await betsRes.json()
@@ -108,13 +120,12 @@ export default async function handler(req, res) {
           const finalOutcome = anyLost ? 'lost' : anyPending ? 'pending' : 'won'
 
           if (finalOutcome !== 'pending') {
-            await sbFetch(
-              `${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`,
-              'PATCH',
-              { outcome: finalOutcome, updated_at: new Date().toISOString() },
-              SUPABASE_URL,
-              SUPABASE_KEY
-            )
+            const betUpdate = { outcome: finalOutcome, updated_at: new Date().toISOString() }
+            if (bet.bet_return_text && bet.bet_return_value > 0) {
+              const earned = evaluateBetReturn(bet.bet_return_text, finalOutcome, allLegs)
+              if (earned !== null) betUpdate.bet_return_earned = earned
+            }
+            await sbFetch(`${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`, 'PATCH', betUpdate, SUPABASE_URL, SUPABASE_KEY)
           }
           results.push({ betId: bet.id, outcome: finalOutcome })
 
@@ -125,13 +136,12 @@ export default async function handler(req, res) {
             check.outcome = 'lost'
           }
           if (check.outcome !== 'pending') {
-            await sbFetch(
-              `${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`,
-              'PATCH',
-              { outcome: check.outcome, updated_at: new Date().toISOString() },
-              SUPABASE_URL,
-              SUPABASE_KEY
-            )
+            const betUpdate = { outcome: check.outcome, updated_at: new Date().toISOString() }
+            if (bet.bet_return_text && bet.bet_return_value > 0) {
+              const earned = evaluateBetReturn(bet.bet_return_text, check.outcome, bet.bet_legs || [])
+              if (earned !== null) betUpdate.bet_return_earned = earned
+            }
+            await sbFetch(`${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`, 'PATCH', betUpdate, SUPABASE_URL, SUPABASE_KEY)
           }
           results.push({ betId: bet.id, outcome: check.outcome, confidence: check.confidence, reasoning: check.reasoning })
         }
