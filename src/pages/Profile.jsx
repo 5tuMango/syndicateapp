@@ -8,13 +8,23 @@ import { calcProfitLoss, formatCurrency, profitLossColor, sortBetsByActivity, is
 
 export default function Profile() {
   const { id } = useParams()
-  const { user } = useAuth()
+  const { user, profile: authProfile } = useAuth()
   const [profile, setProfile] = useState(null)
+  const [persona, setPersona] = useState(null)
   const [bets, setBets] = useState([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({})
+  const [tab, setTab] = useState('bets')
+
+  // Kitty editing
+  const [editingKitty, setEditingKitty] = useState(false)
+  const [kittyForm, setKittyForm] = useState({ amount_paid: '', penalties_paid: '' })
+  const [savingKitty, setSavingKitty] = useState(false)
+  const [kittyMsg, setKittyMsg] = useState(null)
 
   const isOwn = user?.id === id
+  const isAdmin = authProfile?.is_admin
+  const canEditKitty = isOwn || isAdmin
 
   useEffect(() => {
     setBets([])
@@ -29,24 +39,21 @@ export default function Profile() {
       supabase.from('personas').select('*').eq('claimed_by', id).maybeSingle(),
     ])
     setProfile(profileRes.data)
+    setPersona(personaRes.data)
 
-    const persona = personaRes.data
+    const p = personaRes.data
 
-    // Fetch bets owned by this user OR assigned to their persona
     let query = supabase
       .from('bets')
       .select('*, profiles(id, username, full_name), bet_legs(*)')
 
-    if (persona) {
-      // Bets entered by this user with no persona assignment, OR assigned to their persona
-      query = query.or(`and(user_id.eq.${id},persona_id.is.null),persona_id.eq.${persona.id}`)
+    if (p) {
+      query = query.or(`and(user_id.eq.${id},persona_id.is.null),persona_id.eq.${p.id}`)
     } else {
-      // No persona — only show bets entered by this user that aren't assigned to anyone else
       query = query.eq('user_id', id).is('persona_id', null)
     }
 
     const betsRes = await query
-    // Deduplicate (shouldn't happen, but in case user entered their own bets before persona existed)
     const seen = new Set()
     const unique = (betsRes.data || []).filter(b => {
       if (seen.has(b.id)) return false
@@ -58,15 +65,14 @@ export default function Profile() {
   }
 
   const filteredBets = useMemo(() => {
-    const filtered = bets.filter((bet) => {
+    return sortBetsByActivity(bets.filter((bet) => {
       if (filters.sport && bet.sport !== filters.sport) return false
       if (filters.bet_type && bet.bet_type !== filters.bet_type) return false
       if (filters.outcome && bet.outcome !== filters.outcome) return false
       if (filters.date_from && bet.date < filters.date_from) return false
       if (filters.date_to && bet.date > filters.date_to) return false
       return true
-    })
-    return sortBetsByActivity(filtered)
+    }))
   }, [bets, filters])
 
   const stats = useMemo(() => {
@@ -96,28 +102,60 @@ export default function Profile() {
     if (data) setBets((p) => p.map((b) => (b.id === betId ? data : b)))
   }
 
-  if (loading) {
-    return <div className="text-center text-slate-400 py-16">Loading...</div>
+  function startEditKitty() {
+    setKittyForm({
+      amount_paid: String(persona?.amount_paid ?? 0),
+      penalties_paid: String(persona?.penalties_paid ?? 0),
+    })
+    setEditingKitty(true)
+    setKittyMsg(null)
   }
 
-  if (!profile) {
-    return <div className="text-center text-slate-400 py-16">Member not found.</div>
+  async function saveKitty() {
+    if (!persona) return
+    setSavingKitty(true)
+    const { data, error } = await supabase
+      .from('personas')
+      .update({
+        amount_paid: parseFloat(kittyForm.amount_paid) || 0,
+        penalties_paid: parseFloat(kittyForm.penalties_paid) || 0,
+      })
+      .eq('id', persona.id)
+      .select()
+      .single()
+    setSavingKitty(false)
+    if (error) {
+      setKittyMsg({ ok: false, text: error.message })
+    } else {
+      setPersona(data)
+      setEditingKitty(false)
+      setKittyMsg({ ok: true, text: 'Saved' })
+      setTimeout(() => setKittyMsg(null), 2500)
+    }
   }
+
+  if (loading) return <div className="text-center text-slate-400 py-16">Loading...</div>
+  if (!profile) return <div className="text-center text-slate-400 py-16">Member not found.</div>
 
   const displayName = profile.full_name || profile.username
+
+  const amountPaid = parseFloat(persona?.amount_paid ?? 0)
+  const penaltiesPaid = parseFloat(persona?.penalties_paid ?? 0)
+  const target = parseFloat(persona?.contribution_target ?? 400)
+  const totalPaidIn = amountPaid + penaltiesPaid
+  const owed = Math.max(0, target - amountPaid)
+  const pct = Math.min((amountPaid / target) * 100, 100)
 
   return (
     <div className="space-y-5">
       {/* Profile header */}
       <div className="flex items-center gap-4">
         <div className="w-14 h-14 rounded-full bg-green-500/20 border-2 border-green-500/30 flex items-center justify-center text-xl font-bold text-green-400 shrink-0">
-          {displayName[0].toUpperCase()}
+          {persona?.emoji || displayName[0].toUpperCase()}
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-white">{displayName}</h1>
-          <p className="text-slate-400 text-sm">
-            {isOwn ? 'Your profile' : `@${profile.username}`}
-          </p>
+          <h1 className="text-2xl font-bold text-white">{persona?.nickname || displayName}</h1>
+          <p className="text-slate-400 text-sm">{isOwn ? 'Your profile' : `@${profile.username}`}</p>
         </div>
       </div>
 
@@ -143,31 +181,141 @@ export default function Profile() {
           { label: 'Lost', value: stats.lost, color: 'text-red-400' },
           { label: 'Pending', value: stats.pending, color: 'text-yellow-400' },
         ].map(({ label, value, color }) => (
-          <div
-            key={label}
-            className="bg-slate-800 rounded-lg border border-slate-700 p-4 text-center"
-          >
+          <div key={label} className="bg-slate-800 rounded-lg border border-slate-700 p-4 text-center">
             <p className={`text-2xl font-bold ${color}`}>{value}</p>
             <p className="text-slate-400 text-xs mt-1">{label}</p>
           </div>
         ))}
       </div>
 
-      <FilterBar filters={filters} onChange={setFilters} />
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-slate-800/60 rounded-lg border border-slate-700 p-1">
+        {[['bets', 'Bets'], ['kitty', '💰 Kitty']].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === key ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {filteredBets.length === 0 ? (
-        <div className="text-center text-slate-400 py-16">
-          {bets.length === 0
-            ? isOwn
-              ? "You haven't placed any bets yet."
-              : `${displayName} hasn't placed any bets yet.`
-            : 'No bets match the current filters.'}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filteredBets.map((bet) => (
-            <BetCard key={bet.id} bet={bet} onDelete={handleDelete} onUpdate={handleUpdate} showMember={false} />
-          ))}
+      {/* ── Bets tab ── */}
+      {tab === 'bets' && (
+        <>
+          <FilterBar filters={filters} onChange={setFilters} />
+          {filteredBets.length === 0 ? (
+            <div className="text-center text-slate-400 py-16">
+              {bets.length === 0
+                ? isOwn ? "You haven't placed any bets yet." : `${displayName} hasn't placed any bets yet.`
+                : 'No bets match the current filters.'}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredBets.map((bet) => (
+                <BetCard key={bet.id} bet={bet} onDelete={handleDelete} onUpdate={handleUpdate} showMember={false} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Kitty tab ── */}
+      {tab === 'kitty' && (
+        <div className="space-y-4">
+          {!persona ? (
+            <p className="text-slate-500 text-sm text-center py-8">No persona linked to this account yet.</p>
+          ) : (
+            <>
+              {/* Summary card */}
+              <div className="bg-slate-800 rounded-xl border border-emerald-700/40 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-emerald-400 uppercase tracking-wide">Contribution</p>
+                  {canEditKitty && !editingKitty && (
+                    <button onClick={startEditKitty} className="text-xs text-slate-400 hover:text-white transition-colors">Edit</button>
+                  )}
+                </div>
+
+                {editingKitty ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1 block">Paid towards target ($)</label>
+                        <input
+                          type="number"
+                          value={kittyForm.amount_paid}
+                          onChange={e => setKittyForm(f => ({ ...f, amount_paid: e.target.value }))}
+                          step="50" min="0"
+                          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1 block">Penalties / extras paid ($)</label>
+                        <input
+                          type="number"
+                          value={kittyForm.penalties_paid}
+                          onChange={e => setKittyForm(f => ({ ...f, penalties_paid: e.target.value }))}
+                          step="10" min="0"
+                          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={saveKitty} disabled={savingKitty} className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors">
+                        {savingKitty ? 'Saving…' : 'Save'}
+                      </button>
+                      <button onClick={() => setEditingKitty(false)} className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded-lg transition-colors">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <p className="text-xs text-slate-400 mb-1">Paid In</p>
+                        <p className="text-2xl font-bold text-white">${amountPaid.toFixed(0)}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">of ${target.toFixed(0)} target</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400 mb-1">Still Owed</p>
+                        <p className={`text-2xl font-bold ${owed > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>${owed.toFixed(0)}</p>
+                        {owed === 0 && <p className="text-xs text-emerald-500 mt-0.5">Fully paid ✓</p>}
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400 mb-1">Extras</p>
+                        <p className={`text-2xl font-bold ${penaltiesPaid > 0 ? 'text-purple-400' : 'text-slate-600'}`}>${penaltiesPaid.toFixed(0)}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">penalties / fines</p>
+                      </div>
+                    </div>
+
+                    {/* Progress bar */}
+                    <div>
+                      <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1.5">{Math.round(pct)}% of contribution target paid</p>
+                    </div>
+
+                    {totalPaidIn > 0 && (
+                      <div className="bg-slate-900/50 rounded-lg px-4 py-2 text-sm text-slate-400">
+                        Total paid into kitty: <span className="text-white font-semibold">${totalPaidIn.toFixed(0)}</span>
+                        {penaltiesPaid > 0 && <span className="text-slate-500 text-xs"> (${amountPaid.toFixed(0)} contribution + ${penaltiesPaid.toFixed(0)} extras)</span>}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {kittyMsg && (
+                  <p className={`text-xs ${kittyMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{kittyMsg.text}</p>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

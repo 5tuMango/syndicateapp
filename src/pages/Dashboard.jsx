@@ -155,7 +155,7 @@ export default function Dashboard() {
 
   // Kitty: total contributions + settled P&L − pending stakes (committed, can't retrieve)
   const kitty = useMemo(() => {
-    const totalPaid = personaList.reduce((s, p) => s + parseFloat(p.amount_paid || 0), 0)
+    const totalPaid = personaList.reduce((s, p) => s + parseFloat(p.amount_paid || 0) + parseFloat(p.penalties_paid || 0), 0)
     const totalTarget = personaList.reduce((s, p) => s + parseFloat(p.contribution_target || 400), 0)
     // Only settled bets affect P&L; pending bets are treated as a deduction (stake already out)
     const settledPL = bets.reduce((sum, b) => sum + calcProfitLoss(b), 0)

@@ -317,6 +317,7 @@ export default function Leaderboard() {
                       const p = personaMap[member.id]
                       if (!p) return null
                       const paid = parseFloat(p.amount_paid || 0)
+                      const penalties = parseFloat(p.penalties_paid || 0)
                       const target = parseFloat(p.contribution_target || 400)
                       const pct = Math.min((paid / target) * 100, 100)
                       const full = paid >= target
@@ -328,6 +329,7 @@ export default function Leaderboard() {
                           <span className={`text-xs ${full ? 'text-emerald-400' : 'text-amber-400'}`}>
                             ${paid.toFixed(0)} / ${target.toFixed(0)}
                           </span>
+                          {penalties > 0 && <span className="text-xs text-purple-400">+${penalties.toFixed(0)}</span>}
                         </div>
                       )
                     })()}
