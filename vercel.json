@@ -12,12 +12,21 @@
   ],
   "functions": {
     "api/check-results.js": {
-      "maxDuration": 60
+      "maxDuration": 300
+    },
+    "api/check-weekly-results.js": {
+      "maxDuration": 300
     },
     "api/match-weekly-multi.js": {
       "maxDuration": 60
     },
     "api/extract-weekly-results.js": {
+      "maxDuration": 60
+    },
+    "api/extract-bet.js": {
+      "maxDuration": 60
+    },
+    "api/extract-results.js": {
       "maxDuration": 60
     }
   }

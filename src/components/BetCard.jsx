@@ -266,7 +266,9 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ betId: bet.id }),
       })
-      const data = await res.json()
+      const text = await res.text()
+      let data
+      try { data = JSON.parse(text) } catch { throw new Error(text.substring(0, 200)) }
 
       if (!res.ok) throw new Error(data.error || 'Server error')
 
