@@ -92,7 +92,7 @@ function NextEventBar({ eventTime, legs }) {
 }
 
 // Build display groups: SGM sub-legs are nested under a group header; standalone legs shown flat
-function renderGroupedLegs(legs) {
+function renderGroupedLegs(legs, isAdmin, onLegOutcome) {
   const sorted = [...legs].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
   const rendered = []
   const seenGroups = {}
@@ -126,7 +126,11 @@ function renderGroupedLegs(legs) {
             {leg.odds != null && (
               <span className="text-slate-300 text-sm">{parseFloat(leg.odds).toFixed(2)}</span>
             )}
-            <OutcomePill outcome={leg.outcome} />
+            {isAdmin ? (
+              <LegOutcomeSelect outcome={leg.outcome} onChange={(v) => onLegOutcome(leg.id, v)} />
+            ) : (
+              <OutcomePill outcome={leg.outcome} />
+            )}
           </div>
         </div>
       )
@@ -169,7 +173,11 @@ function renderGroupedLegs(legs) {
                   {gl.description && <span className="text-slate-400">{gl.description}</span>}
                   {gl.selection && <span className="text-green-400 font-medium"> · {gl.selection}</span>}
                 </div>
-                <OutcomePill outcome={gl.outcome} />
+                {isAdmin ? (
+                  <LegOutcomeSelect outcome={gl.outcome} onChange={(v) => onLegOutcome(gl.id, v)} />
+                ) : (
+                  <OutcomePill outcome={gl.outcome} />
+                )}
               </div>
             ))}
           </div>
@@ -186,6 +194,34 @@ function OutcomePill({ outcome }) {
       {outcome}
     </span>
   )
+}
+
+function LegOutcomeSelect({ outcome, onChange }) {
+  const cls = outcome === 'won'
+    ? 'bg-green-500/20 text-green-400 border-green-500/30'
+    : outcome === 'lost'
+    ? 'bg-red-500/20 text-red-400 border-red-500/30'
+    : outcome === 'void'
+    ? 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+    : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+  return (
+    <select
+      value={outcome || 'pending'}
+      onChange={(e) => onChange(e.target.value)}
+      className={`text-xs px-1.5 py-0.5 rounded border focus:outline-none ${cls}`}
+    >
+      {OVERRIDE_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  )
+}
+
+// Derive parent bet outcome from all leg outcomes
+function deriveBetOutcome(legs) {
+  const outcomes = legs.map(l => l.outcome || 'pending')
+  if (outcomes.some(o => o === 'lost')) return 'lost'
+  if (outcomes.some(o => o === 'pending')) return 'pending'
+  if (outcomes.every(o => o === 'void')) return 'void'
+  return 'won'
 }
 
 const OVERRIDE_OUTCOMES = ['won', 'lost', 'void', 'pending']
@@ -274,6 +310,19 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
       .update({ outcome: newOutcome, updated_at: new Date().toISOString() })
       .eq('id', bet.id)
     setSavingOverride(false)
+    onUpdate?.(bet.id)
+  }
+
+  const handleLegOutcome = async (legId, newOutcome) => {
+    // Update the leg
+    await supabase.from('bet_legs').update({ outcome: newOutcome }).eq('id', legId)
+    // Derive new parent outcome from updated legs list
+    const updatedLegs = legs.map(l => l.id === legId ? { ...l, outcome: newOutcome } : l)
+    const parentOutcome = deriveBetOutcome(updatedLegs)
+    await supabase
+      .from('bets')
+      .update({ outcome: parentOutcome, updated_at: new Date().toISOString() })
+      .eq('id', bet.id)
     onUpdate?.(bet.id)
   }
 
@@ -503,7 +552,7 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
         <div className="space-y-2 pt-1">
           {isMulti && legs.length > 0 ? (
             /* Multi — group SGM sub-legs, show standalone legs normally */
-            renderGroupedLegs(legs)
+            renderGroupedLegs(legs, profile?.is_admin, handleLegOutcome)
           ) : (
             /* Single — show full bet details */
             <div className="bg-slate-900/80 rounded-md px-4 py-3 space-y-2 text-sm">
