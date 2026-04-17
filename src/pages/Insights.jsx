@@ -52,6 +52,14 @@ export default function Insights() {
     fetchData()
   }, [])
 
+  // Resolve the effective member ID for a bet — persona_id takes priority over user_id
+  const betMemberId = (bet) => {
+    if (bet.persona_id && byPersonaId[bet.persona_id]?.claimed_by) {
+      return byPersonaId[bet.persona_id].claimed_by
+    }
+    return bet.user_id
+  }
+
   // ── Total winnings (payout from won bets only) ────────────────────────────
   const totalWinnings = useMemo(() => {
     return bets
@@ -293,14 +301,6 @@ export default function Insights() {
   }
 
   const noData = bets.length === 0
-
-  // Resolve the effective member ID for a bet — persona_id takes priority over user_id
-  const betMemberId = (bet) => {
-    if (bet.persona_id && byPersonaId[bet.persona_id]?.claimed_by) {
-      return byPersonaId[bet.persona_id].claimed_by
-    }
-    return bet.user_id
-  }
 
   const displayName = (m) => {
     const p = personaMap[m.id]
