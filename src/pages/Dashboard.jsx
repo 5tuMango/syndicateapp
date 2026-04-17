@@ -49,13 +49,14 @@ export default function Dashboard() {
   const [weeklyMultis, setWeeklyMultis] = useState([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({})
+  const [unattributedFunds, setUnattributedFunds] = useState(0)
 
   useEffect(() => {
     fetchData()
   }, [])
 
   async function fetchData() {
-    const [betsRes, membersRes, weeklyRes] = await Promise.all([
+    const [betsRes, membersRes, weeklyRes, kittyRes] = await Promise.all([
       supabase
         .from('bets')
         .select('*, profiles(id, username, full_name), bet_legs(*)')
@@ -63,10 +64,12 @@ export default function Dashboard() {
         .order('created_at', { ascending: false }),
       supabase.from('profiles').select('id, username, full_name').order('full_name'),
       supabase.from('weekly_multis').select('*, weekly_multi_legs(*, profiles(id, full_name, username))'),
+      supabase.from('kitty_settings').select('unattributed_funds').eq('id', 1).maybeSingle(),
     ])
     setBets(betsRes.data || [])
     setMembers(membersRes.data || [])
     setWeeklyMultis(weeklyRes.data || [])
+    setUnattributedFunds(parseFloat(kittyRes.data?.unattributed_funds || 0))
     setLoading(false)
   }
 
@@ -171,9 +174,9 @@ export default function Dashboard() {
         return nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending')
       })
       .reduce((sum, m) => sum + parseFloat(m.stake || 0), 0)
-    const balance = totalPaid + settledPL + weeklyStats.pl - pendingStakes - pendingWeeklyStakes
-    return { totalPaid, totalTarget, toPay: totalTarget - totalPaid, balance, pendingStakes: pendingStakes + pendingWeeklyStakes }
-  }, [personaList, bets, weeklyMultis, weeklyStats])
+    const balance = totalPaid + unattributedFunds + settledPL + weeklyStats.pl - pendingStakes - pendingWeeklyStakes
+    return { totalPaid: totalPaid + unattributedFunds, totalTarget, toPay: totalTarget - totalPaid, balance, pendingStakes: pendingStakes + pendingWeeklyStakes }
+  }, [personaList, bets, weeklyMultis, weeklyStats, unattributedFunds])
 
   const handleDelete = (id) => setBets((prev) => prev.filter((b) => b.id !== id))
 
@@ -262,7 +265,8 @@ export default function Dashboard() {
             />
           </div>
           <p className="text-xs text-slate-500 mt-1.5">
-            {Math.round((kitty.totalPaid / kitty.totalTarget) * 100)}% collected · {personaList.filter(p => parseFloat(p.amount_paid || 0) >= parseFloat(p.contribution_target || 400)).length}/{personaList.length} members fully paid
+            {personaList.filter(p => parseFloat(p.amount_paid || 0) >= parseFloat(p.contribution_target || 400)).length}/{personaList.length} members fully paid
+            {unattributedFunds > 0 && <span className="text-slate-500"> · +${unattributedFunds.toFixed(0)} unattributed</span>}
             {kitty.pendingStakes > 0 && <span className="text-yellow-500"> · ${kitty.pendingStakes.toFixed(2)} in pending bets</span>}
           </p>
         </div>
