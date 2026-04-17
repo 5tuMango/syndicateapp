@@ -66,15 +66,17 @@ export const calcProfitLoss = (bet) => {
   const odds = parseFloat(bet.odds)
   if (bet.outcome === 'won') return stake * (odds - 1)
   if (bet.outcome === 'lost') {
-    // Bonus bets and rollover bets: stake wasn't own money, so losing it = $0 impact
-    if (bet.is_bonus_bet || bet.is_rollover) return 0
-    return -stake
+    // Bonus bets only: free stake, so losing = $0 impact
+    // Rollover bets carry full P&L so the net across the chain is accurate
+    return bet.is_bonus_bet ? 0 : -stake
   }
   // void and pending: $0
   return 0
 }
 
-// Whether a bet's stake counts as real capital risked (excludes bonus & rollover stakes)
+// Whether a bet's stake counts as real capital risked
+// Rollover stakes excluded (funded from prior winnings, not new money)
+// Bonus stakes excluded (free bets from the bookmaker)
 export const isRealStake = (bet) => !bet.is_bonus_bet && !bet.is_rollover
 
 export const formatCurrency = (amount) => {
