@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { formatCurrency, profitLossColor } from '../lib/utils'
 import { usePersonas } from '../hooks/usePersonas'
+import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 
 function combinedOdds(legs) {
   const entered = legs.filter(l => l.odds != null && parseFloat(l.odds) > 0)
@@ -26,11 +28,17 @@ function outcomeBadgeClass(outcome) {
   }
 }
 
+const LEG_OUTCOMES = ['pending', 'won', 'lost', 'void']
+
 export default function WeeklyMultiCard({ multi, onUpdate }) {
+  const { profile } = useAuth()
   const { byUserId, byPersonaId } = usePersonas()
+  const isAdmin = profile?.is_admin
+
   const [expanded, setExpanded] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [msg, setMsg] = useState(null) // { type: 'ok'|'warn'|'info', text }
+  const [msg, setMsg] = useState(null)
+  const [savingLeg, setSavingLeg] = useState({})
 
   const legs = [...(multi.weekly_multi_legs || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
   const odds = combinedOdds(legs)
@@ -38,6 +46,7 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
   const stake = parseFloat(multi.stake || 0)
   const winnings = outcome === 'won' && odds != null ? stake * odds : 0
   const pl = outcome === 'won' ? winnings - stake : outcome === 'lost' ? -stake : 0
+  const allResolved = legs.length > 0 && legs.every(l => l.outcome !== 'pending')
 
   const handleResultUpload = async (e) => {
     const files = Array.from(e.target.files || [])
@@ -71,6 +80,13 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
       setUploading(false)
       e.target.value = ''
     }
+  }
+
+  async function saveLegOutcome(legId, newOutcome) {
+    setSavingLeg(s => ({ ...s, [legId]: true }))
+    await supabase.from('weekly_multi_legs').update({ outcome: newOutcome }).eq('id', legId)
+    setSavingLeg(s => ({ ...s, [legId]: false }))
+    onUpdate?.()
   }
 
   return (
@@ -129,7 +145,8 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
             {expanded ? `Hide legs ▴` : `${legs.length} legs ▾`}
           </button>
 
-          {outcome === 'pending' && (
+          {/* Upload results — always show for admin, only when pending for others */}
+          {(isAdmin || !allResolved) && (
             <label className={`text-xs cursor-pointer transition-colors ${uploading ? 'text-slate-500' : 'text-slate-400 hover:text-blue-400'}`}>
               {uploading ? 'Reading…' : '📷 Results'}
               <input
@@ -190,9 +207,23 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
                   {leg.odds != null && (
                     <span className="text-slate-400 text-sm">{parseFloat(leg.odds).toFixed(2)}</span>
                   )}
-                  <span className={`text-xs px-1.5 py-0.5 rounded border ${outcomeBadgeClass(leg.outcome)}`}>
-                    {leg.outcome}
-                  </span>
+                  {/* Admin: dropdown to set outcome; others: badge only */}
+                  {isAdmin ? (
+                    <select
+                      value={leg.outcome || 'pending'}
+                      onChange={(e) => saveLegOutcome(leg.id, e.target.value)}
+                      disabled={savingLeg[leg.id]}
+                      className={`text-xs px-1.5 py-0.5 rounded border bg-slate-800 focus:outline-none focus:border-slate-500 ${outcomeBadgeClass(leg.outcome)}`}
+                    >
+                      {LEG_OUTCOMES.map(o => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className={`text-xs px-1.5 py-0.5 rounded border ${outcomeBadgeClass(leg.outcome)}`}>
+                      {leg.outcome}
+                    </span>
+                  )}
                 </div>
               </div>
             )
