@@ -38,10 +38,11 @@ export default function Profile() {
       .select('*, profiles(id, username, full_name), bet_legs(*)')
 
     if (persona) {
-      // Use or filter: bets entered by this user with no persona, OR any bet assigned to their persona
-      query = query.or(`user_id.eq.${id},persona_id.eq.${persona.id}`)
+      // Bets entered by this user with no persona assignment, OR assigned to their persona
+      query = query.or(`and(user_id.eq.${id},persona_id.is.null),persona_id.eq.${persona.id}`)
     } else {
-      query = query.eq('user_id', id)
+      // No persona — only show bets entered by this user that aren't assigned to anyone else
+      query = query.eq('user_id', id).is('persona_id', null)
     }
 
     const betsRes = await query
