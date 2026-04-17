@@ -21,6 +21,8 @@ export default function Profile() {
   const [kittyForm, setKittyForm] = useState({ amount_paid: '', penalties_paid: '' })
   const [savingKitty, setSavingKitty] = useState(false)
   const [kittyMsg, setKittyMsg] = useState(null)
+  const [kittyBalance, setKittyBalance] = useState(null) // full group balance
+  const [numPunters, setNumPunters] = useState(8)
 
   const isOwn = user?.id === id
   const isAdmin = authProfile?.is_admin
@@ -61,6 +63,43 @@ export default function Profile() {
       return true
     })
     setBets(sortBetsByActivity(unique))
+
+    // Fetch kitty balance data
+    const [allPersonasRes, allBetsRes, weeklyRes, kittySettingsRes] = await Promise.all([
+      supabase.from('personas').select('amount_paid, penalties_paid'),
+      supabase.from('bets').select('stake, odds, outcome, is_bonus_bet, intend_to_rollover, is_rollover'),
+      supabase.from('weekly_multis').select('stake, weekly_multi_legs(outcome, odds)'),
+      supabase.from('kitty_settings').select('unattributed_funds').eq('id', 1).maybeSingle(),
+    ])
+    const allPersonas = allPersonasRes.data || []
+    const allBets = allBetsRes.data || []
+    const weeklyMultis = weeklyRes.data || []
+    const unattributed = parseFloat(kittySettingsRes.data?.unattributed_funds || 0)
+
+    const totalPaid = allPersonas.reduce((s, p) => s + parseFloat(p.amount_paid || 0) + parseFloat(p.penalties_paid || 0), 0)
+    const settledPL = allBets.reduce((s, b) => {
+      const stake = parseFloat(b.stake), odds = parseFloat(b.odds)
+      if (b.outcome === 'won') return s + stake * (odds - 1)
+      if (b.outcome === 'lost') return s + (b.is_bonus_bet ? 0 : -stake)
+      return s
+    }, 0)
+    const pendingStakes = allBets.filter(b => b.outcome === 'pending' && !b.is_bonus_bet).reduce((s, b) => s + parseFloat(b.stake), 0)
+    const weeklyPL = weeklyMultis.reduce((s, m) => {
+      const legs = m.weekly_multi_legs || []
+      const nonVoid = legs.filter(l => l.outcome !== 'void')
+      if (nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending')) return s
+      if (nonVoid.some(l => l.outcome === 'lost')) return s - parseFloat(m.stake || 0)
+      const combo = legs.filter(l => l.odds != null).reduce((acc, l) => acc * parseFloat(l.odds), 1)
+      return s + parseFloat(m.stake || 0) * (combo - 1)
+    }, 0)
+    const pendingWeeklyStakes = weeklyMultis.filter(m => {
+      const legs = m.weekly_multi_legs || []
+      const nonVoid = legs.filter(l => l.outcome !== 'void')
+      return nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending')
+    }).reduce((s, m) => s + parseFloat(m.stake || 0), 0)
+
+    setKittyBalance(totalPaid + unattributed + settledPL + weeklyPL - pendingStakes - pendingWeeklyStakes)
+    setNumPunters(allPersonas.length || 8)
     setLoading(false)
   }
 
@@ -305,6 +344,37 @@ export default function Profile() {
                       <div className="bg-slate-900/50 rounded-lg px-4 py-2 text-sm text-slate-400">
                         Total paid into kitty: <span className="text-white font-semibold">${totalPaidIn.toFixed(0)}</span>
                         {penaltiesPaid > 0 && <span className="text-slate-500 text-xs"> (${amountPaid.toFixed(0)} contribution + ${penaltiesPaid.toFixed(0)} extras)</span>}
+                      </div>
+                    )}
+
+                    {/* Payout section */}
+                    {kittyBalance !== null && (
+                      <div className="border-t border-slate-700 pt-4 space-y-3">
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">If kitty paid out today</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-slate-900/50 rounded-lg p-3">
+                            <p className="text-xs text-slate-400 mb-1">Your share</p>
+                            <p className={`text-xl font-bold ${(kittyBalance / numPunters) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              ${(kittyBalance / numPunters).toFixed(2)}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-0.5">balance ÷ {numPunters} punters</p>
+                          </div>
+                          <div className="bg-slate-900/50 rounded-lg p-3">
+                            <p className="text-xs text-slate-400 mb-1">Net return</p>
+                            {(() => {
+                              const share = kittyBalance / numPunters
+                              const net = share - owed
+                              return (
+                                <>
+                                  <p className={`text-xl font-bold ${net >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                    ${net.toFixed(2)}
+                                  </p>
+                                  <p className="text-xs text-slate-500 mt-0.5">share − ${owed.toFixed(0)} still owed</p>
+                                </>
+                              )
+                            })()}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </>

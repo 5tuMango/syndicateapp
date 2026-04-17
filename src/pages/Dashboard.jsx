@@ -175,7 +175,9 @@ export default function Dashboard() {
       })
       .reduce((sum, m) => sum + parseFloat(m.stake || 0), 0)
     const balance = totalPaid + unattributedFunds + settledPL + weeklyStats.pl - pendingStakes - pendingWeeklyStakes
-    return { totalPaid: totalPaid + unattributedFunds, totalTarget, toPay: totalTarget - totalPaid, balance, pendingStakes: pendingStakes + pendingWeeklyStakes }
+    const numPunters = personaList.length || 8
+    const payoutPerPunter = balance / numPunters
+    return { totalPaid: totalPaid + unattributedFunds, totalTarget, toPay: totalTarget - totalPaid, balance, pendingStakes: pendingStakes + pendingWeeklyStakes, payoutPerPunter }
   }, [personaList, bets, weeklyMultis, weeklyStats, unattributedFunds])
 
   const handleDelete = (id) => setBets((prev) => prev.filter((b) => b.id !== id))
@@ -240,11 +242,17 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 mb-3">
             <span className="text-emerald-400 font-bold text-sm uppercase tracking-wide">💰 The Kitty</span>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <div>
               <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Balance</p>
               <p className={`text-2xl font-bold ${kitty.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 ${kitty.balance.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Per Punter</p>
+              <p className={`text-2xl font-bold ${kitty.payoutPerPunter >= 0 ? 'text-emerald-300' : 'text-red-400'}`}>
+                ${kitty.payoutPerPunter.toFixed(2)}
               </p>
             </div>
             <div>
