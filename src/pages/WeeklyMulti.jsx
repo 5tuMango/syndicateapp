@@ -75,7 +75,8 @@ export default function WeeklyMulti() {
 
   // Upload bet slip + match preview
   const [slipUploading, setSlipUploading] = useState(false)
-  const [slipPreview, setSlipPreview] = useState(null) // { multiId, matches: [] }
+  const [slipPreview, setSlipPreview] = useState(null) // { multiId, matches: [], unmatched_slip_legs: [] }
+  const [manualAssignments, setManualAssignments] = useState({}) // { slipLegIndex: legId }
 
   // Set outcome modal
   const [overrideLeg, setOverrideLeg] = useState(null) // leg object
@@ -305,7 +306,8 @@ export default function WeeklyMulti() {
       let data
       try { data = JSON.parse(text) } catch { throw new Error(`Server error (status ${res.status}): ${text.slice(0, 200)}`) }
       if (!res.ok) throw new Error(data.error || `Server error ${res.status}`)
-      setSlipPreview({ multiId, matches: data.matches })
+      setManualAssignments({})
+      setSlipPreview({ multiId, matches: data.matches, unmatched_slip_legs: data.unmatched_slip_legs || [] })
     } catch (err) {
       alert('Error reading bet slip: ' + err.message)
     } finally {
@@ -316,6 +318,9 @@ export default function WeeklyMulti() {
 
   async function handleConfirmSlip() {
     if (!slipPreview) return
+    const unmatched = slipPreview.unmatched_slip_legs || []
+
+    // Save auto-matched legs
     const matched = slipPreview.matches.filter(m => m.matched && m.leg_id)
     for (const m of matched) {
       await supabase.from('weekly_multi_legs').update({
@@ -326,7 +331,22 @@ export default function WeeklyMulti() {
         updated_at: new Date().toISOString(),
       }).eq('id', m.leg_id)
     }
+
+    // Save manually assigned unmatched slip legs
+    for (const [slipIdx, legId] of Object.entries(manualAssignments)) {
+      const slipLeg = unmatched[parseInt(slipIdx)]
+      if (!slipLeg || !legId) continue
+      await supabase.from('weekly_multi_legs').update({
+        event: slipLeg.event || null,
+        description: slipLeg.description || null,
+        selection: slipLeg.selection || null,
+        odds: slipLeg.odds || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', legId)
+    }
+
     setSlipPreview(null)
+    setManualAssignments({})
     load()
   }
 
@@ -828,57 +848,117 @@ export default function WeeklyMulti() {
       )}
 
       {/* Bet slip match preview */}
-      {slipPreview && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 w-full max-w-lg space-y-4">
-            <h3 className="text-white font-semibold">Confirm Bet Slip Matches</h3>
-            <p className="text-xs text-slate-500">Review how Claude matched each pick to the bet slip. Unmatched legs can be edited manually after confirming.</p>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {slipPreview.matches.map((m, i) => (
-                <div
-                  key={i}
-                  className={`p-3 rounded-lg ${m.matched ? 'bg-slate-900/70' : 'bg-red-900/20 border border-red-500/20'}`}
-                >
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-sm font-semibold text-slate-200 shrink-0">{m.member_name}</span>
-                      {m.raw_pick && (
-                        <span className="text-slate-500 text-xs italic truncate">"{m.raw_pick}"</span>
-                      )}
+      {slipPreview && (() => {
+        const unmatched = slipPreview.unmatched_slip_legs || []
+        // Leg IDs that already have an auto-match
+        const autoMatchedLegIds = new Set(slipPreview.matches.filter(m => m.matched && m.leg_id).map(m => m.leg_id))
+        // Leg IDs assigned via manual assignment
+        const manuallyAssignedLegIds = new Set(Object.values(manualAssignments))
+        // Available legs for assignment: picks that aren't auto-matched and aren't already manually assigned
+        const availableForAssignment = slipPreview.matches.filter(
+          m => !m.matched && m.leg_id && !manuallyAssignedLegIds.has(m.leg_id)
+        )
+
+        return (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 w-full max-w-lg space-y-4">
+              <h3 className="text-white font-semibold">Confirm Bet Slip Matches</h3>
+              <p className="text-xs text-slate-500">Review how Claude matched each pick to the bet slip.</p>
+
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {/* Auto-matched picks */}
+                {slipPreview.matches.map((m, i) => (
+                  <div
+                    key={i}
+                    className={`p-3 rounded-lg ${m.matched ? 'bg-slate-900/70' : 'bg-slate-900/40 border border-slate-700'}`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-semibold text-slate-200 shrink-0">{m.member_name}</span>
+                        {m.raw_pick && (
+                          <span className="text-slate-500 text-xs italic truncate">"{m.raw_pick}"</span>
+                        )}
+                      </div>
+                      {m.matched
+                        ? <span className="text-green-400 text-xs shrink-0">✓ Matched</span>
+                        : <span className="text-slate-500 text-xs shrink-0">— no slip match</span>
+                      }
                     </div>
-                    {m.matched
-                      ? <span className="text-green-400 text-xs shrink-0">✓ Matched</span>
-                      : <span className="text-red-400 text-xs shrink-0">✗ No match</span>
-                    }
+                    {m.matched && (
+                      <div className="text-xs text-slate-400 space-x-1">
+                        {m.event && <span className="text-slate-300">{m.event}</span>}
+                        {m.description && <span>· {m.description}</span>}
+                        {m.selection && <span className="text-green-400">· {m.selection}</span>}
+                        {m.odds && <span className="text-white font-medium">@ {parseFloat(m.odds).toFixed(2)}</span>}
+                      </div>
+                    )}
                   </div>
-                  {m.matched && (
-                    <div className="text-xs text-slate-400 space-x-1">
-                      {m.event && <span className="text-slate-300">{m.event}</span>}
-                      {m.description && <span>· {m.description}</span>}
-                      {m.selection && <span className="text-green-400">· {m.selection}</span>}
-                      {m.odds && <span className="text-white font-medium">@ {parseFloat(m.odds).toFixed(2)}</span>}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={handleConfirmSlip}
-                className="flex-1 bg-green-500 hover:bg-green-400 text-white font-semibold rounded-lg py-2 text-sm transition-colors"
-              >
-                Confirm & Save
-              </button>
-              <button
-                onClick={() => setSlipPreview(null)}
-                className="flex-1 border border-slate-600 text-slate-300 hover:text-white rounded-lg py-2 text-sm transition-colors"
-              >
-                Cancel
-              </button>
+                ))}
+
+                {/* Unmatched slip legs — user assigns to a persona */}
+                {unmatched.length > 0 && (
+                  <div className="pt-2 space-y-2">
+                    <p className="text-xs text-amber-400 font-semibold">Unrecognised slip legs — assign manually:</p>
+                    {unmatched.map((sl, si) => {
+                      const assignedLegId = manualAssignments[si]
+                      return (
+                        <div key={si} className="p-3 rounded-lg bg-amber-900/20 border border-amber-500/30 space-y-2">
+                          <div className="text-xs text-slate-300">
+                            {sl.event && <span>{sl.event}</span>}
+                            {sl.description && <span className="text-slate-400"> · {sl.description}</span>}
+                            {sl.selection && <span className="text-green-400"> · {sl.selection}</span>}
+                            {sl.odds && <span className="text-white font-medium"> @ {parseFloat(sl.odds).toFixed(2)}</span>}
+                          </div>
+                          <select
+                            value={assignedLegId || ''}
+                            onChange={e => {
+                              const val = e.target.value
+                              setManualAssignments(prev => {
+                                const next = { ...prev }
+                                // Clear any other slip leg that was assigned to this legId
+                                for (const k of Object.keys(next)) {
+                                  if (next[k] === val) delete next[k]
+                                }
+                                if (val) next[si] = val
+                                else delete next[si]
+                                return next
+                              })
+                            }}
+                            className="w-full text-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-200 focus:outline-none"
+                          >
+                            <option value="">— assign to persona —</option>
+                            {availableForAssignment
+                              .filter(m => !manuallyAssignedLegIds.has(m.leg_id) || assignedLegId === m.leg_id)
+                              .map(m => (
+                                <option key={m.leg_id} value={m.leg_id}>{m.member_name}{m.raw_pick ? ` — "${m.raw_pick}"` : ''}</option>
+                              ))
+                            }
+                          </select>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleConfirmSlip}
+                  className="flex-1 bg-green-500 hover:bg-green-400 text-white font-semibold rounded-lg py-2 text-sm transition-colors"
+                >
+                  Confirm & Save
+                </button>
+                <button
+                  onClick={() => { setSlipPreview(null); setManualAssignments({}) }}
+                  className="flex-1 border border-slate-600 text-slate-300 hover:text-white rounded-lg py-2 text-sm transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Set outcome */}
       {overrideLeg && (

@@ -68,7 +68,7 @@ export default async function handler(req, res) {
 Punters' picks (in order):
 ${pickList}
 
-From the screenshot${imageList.length > 1 ? 's' : ''}, extract each leg of the multi and match it to the punter whose pick it corresponds to.
+From the screenshot${imageList.length > 1 ? 's' : ''}, extract every leg of the multi and match them to punters' picks.
 
 Matching rules:
 - Picks use informal team names, abbreviations and nicknames common in Australian sports — e.g:
@@ -77,24 +77,31 @@ Matching rules:
   - "Riff" = Penrith Panthers (Panthers play at BlueBet Stadium, previously Penrith Stadium — "Riff" is a local nickname)
   - "Roma" = AS Roma (Soccer)
 - "h2h" or "H2H" = Head to Head market
-- "-3.5", "+8.5" etc = line/handicap numbers — match to the same number in the bet slip
+- FUZZY HANDICAP MATCHING: if the team/player name clearly matches a pick, treat it as a match even if the handicap or line number is slightly different (e.g. pick says "Swans +19.5" but slip says "Sydney Swans (+20.5)" — still match it). Always use the actual number from the bet slip.
 - The order of legs in the bet slip will NOT match the order of picks — match by team/selection name, not position
 
-Return ONLY a valid JSON array with exactly ${sortedLegs.length} entries (one per punter, in the same order as the picks list above):
-[
-  { "leg_index": 0, "event": "...", "description": "...", "selection": "...", "odds": 1.24, "matched": true },
-  ...
-]
+Return ONLY a valid JSON object in this exact shape:
+{
+  "matches": [
+    { "leg_index": 0, "event": "...", "description": "...", "selection": "...", "odds": 1.24, "matched": true },
+    ...
+  ],
+  "unmatched_slip_legs": [
+    { "event": "...", "description": "...", "selection": "...", "odds": 1.24 },
+    ...
+  ]
+}
 
-Fields:
+"matches" must have exactly ${sortedLegs.length} entries (one per punter, in the same order as the picks list above):
 - "leg_index": 0-based index of the punter in the picks list above
-- "event": full match/event name from the bet slip (e.g. "Geelong Cats v West Coast Eagles")
+- "event": full match/event name from the bet slip
 - "description": market type (e.g. "Head to Head", "Pick Your Line", "Win-Draw-Win")
-- "selection": exact selection text from the bet slip (e.g. "Geelong Cats (-16.5)")
+- "selection": exact selection text from the bet slip
 - "odds": decimal odds as a number
 - "matched": true if clearly matched, false if uncertain or no pick was entered
+For unmatched/uncertain picks, set matched: false and omit event/selection/odds.
 
-Include all ${sortedLegs.length} entries. For unmatched/uncertain ones, set matched: false and omit event/selection/odds.`
+"unmatched_slip_legs": any legs found in the bet slip that could NOT be matched to any pick entry. Omit this array (or return []) if all slip legs were matched.`
 
   const content = [
     ...imageList.map(img => ({
@@ -129,13 +136,16 @@ Include all ${sortedLegs.length} entries. For unmatched/uncertain ones, set matc
     if (!textBlock) return res.status(500).json({ error: 'No response from AI' })
 
     const cleaned = textBlock.text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim()
-    const jsonMatch = cleaned.match(/\[[\s\S]*\]/)
+    // Try object shape first, fall back to legacy array shape
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/) || cleaned.match(/\[[\s\S]*\]/)
     if (!jsonMatch) return res.status(500).json({ error: 'Could not parse AI response', raw: textBlock.text.substring(0, 300) })
 
-    const matches = JSON.parse(jsonMatch[0])
+    const parsed = JSON.parse(jsonMatch[0])
+    const rawMatches = Array.isArray(parsed) ? parsed : (parsed.matches || [])
+    const unmatchedSlipLegs = Array.isArray(parsed) ? [] : (parsed.unmatched_slip_legs || [])
 
     // Enrich with leg_id and member info for the frontend
-    const enriched = matches.map(m => {
+    const enriched = rawMatches.map(m => {
       const leg = sortedLegs[m.leg_index]
       if (!leg) return m
       const memberName = leg.assigned_user_id
@@ -149,7 +159,7 @@ Include all ${sortedLegs.length} entries. For unmatched/uncertain ones, set matc
       }
     })
 
-    return res.status(200).json({ matches: enriched })
+    return res.status(200).json({ matches: enriched, unmatched_slip_legs: unmatchedSlipLegs })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }
