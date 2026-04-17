@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { SPORTS, LEG_SPORTS } from '../lib/utils'
+import { SPORTS, LEG_SPORTS, evaluateBetReturn } from '../lib/utils'
 
 const newLeg = () => ({ sport: '', event_time: '', event: '', description: '', selection: '', odds: '', leg_group: '', group_odds: '', outcome: 'pending' })
 
@@ -253,6 +253,12 @@ export default function AddBet() {
           is_bonus_bet: form.is_bonus_bet || false,
           bet_return_text: form.bet_return_text.trim() || null,
           bet_return_value: form.bet_return_value ? parseFloat(form.bet_return_value) : null,
+          bet_return_earned: (() => {
+            if (!form.bet_return_text.trim() || !form.bet_return_value || form.outcome === 'pending') return null
+            const legsList = form.bet_type === 'multi' ? legs : []
+            const earned = evaluateBetReturn(form.bet_return_text, form.outcome, legsList)
+            return earned // null = needs review (e.g. racing placement)
+          })(),
         })
         .select()
         .single()

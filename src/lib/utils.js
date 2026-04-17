@@ -140,26 +140,24 @@ export function evaluateBetReturn(betReturnText, outcome, legs = []) {
   const text = betReturnText.toLowerCase()
   const lostLegs = legs.filter(l => l.outcome === 'lost').length
 
-  // "if 1 leg fails" / "if one leg fails"
-  if (/\b1 leg fail|\bone leg fail/.test(text)) {
-    return lostLegs === 1
-  }
+  // Racing placement: "runs 2nd or 3rd", "runs second or third" → needs online check
+  if (/runs? (2nd|second|3rd|third)|place(?:s|d)?/.test(text)) return null
+
+  // "if 1 leg fails" / "if one leg fails" / "1 leg fails"
+  if (/\b1 leg fail|\bone leg fail/.test(text)) return lostLegs === 1
+
   // "if 2 legs fail"
-  if (/\b2 legs? fail/.test(text)) {
-    return lostLegs === 2
-  }
+  if (/\b2 legs? fail/.test(text)) return lostLegs === 2
+
   // "if any leg fails" / "if ANY leg" / "any legs of your ... fail"
-  if (/any legs? (of your .+)?fail|if any leg/.test(text)) {
-    return outcome === 'lost'
-  }
+  if (/any legs? (of your .+)?fail|if any leg|any leg.*fail/.test(text)) return outcome === 'lost'
+
   // Simple loss: "if it loses", "if this bet loses", "if your selection loses", "if your multi loses"
-  if (/if (it|this bet|your (selection|multi|bet)) loses?/.test(text)) {
-    return outcome === 'lost'
-  }
-  // Racing placement: "runs 2nd or 3rd", "runs second or third" → needs result check
-  if (/runs? (2nd|second|3rd|third)|place(?:s|d)?/.test(text)) {
-    return null
-  }
+  if (/if (it|this bet|your (selection|multi|bet)) loses?/.test(text)) return outcome === 'lost'
+
+  // Bet loses / multi loses (without "if" prefix)
+  if (/\b(bet|multi|selection) loses?/.test(text)) return outcome === 'lost'
+
   // Unknown terms → needs manual review
   return null
 }

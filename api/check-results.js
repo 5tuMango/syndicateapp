@@ -6,11 +6,12 @@ function evaluateBetReturn(betReturnText, outcome, legs = []) {
   if (!betReturnText || !outcome || outcome === 'pending') return null
   const text = betReturnText.toLowerCase()
   const lostLegs = legs.filter(l => l.outcome === 'lost').length
+  if (/runs? (2nd|second|3rd|third)|place(?:s|d)?/.test(text)) return null
   if (/\b1 leg fail|\bone leg fail/.test(text)) return lostLegs === 1
   if (/\b2 legs? fail/.test(text)) return lostLegs === 2
-  if (/any legs? (of your .+)?fail|if any leg/.test(text)) return outcome === 'lost'
+  if (/any legs? (of your .+)?fail|if any leg|any leg.*fail/.test(text)) return outcome === 'lost'
   if (/if (it|this bet|your (selection|multi|bet)) loses?/.test(text)) return outcome === 'lost'
-  if (/runs? (2nd|second|3rd|third)|place(?:s|d)?/.test(text)) return null
+  if (/\b(bet|multi|selection) loses?/.test(text)) return outcome === 'lost'
   return null
 }
 
@@ -138,8 +139,13 @@ export default async function handler(req, res) {
           if (check.outcome !== 'pending') {
             const betUpdate = { outcome: check.outcome, updated_at: new Date().toISOString() }
             if (bet.bet_return_text && bet.bet_return_value > 0) {
+              // Try simple rule evaluation first; fall back to AI's determination for racing placements
               const earned = evaluateBetReturn(bet.bet_return_text, check.outcome, bet.bet_legs || [])
-              if (earned !== null) betUpdate.bet_return_earned = earned
+              if (earned !== null) {
+                betUpdate.bet_return_earned = earned
+              } else if (check.bet_return_earned != null) {
+                betUpdate.bet_return_earned = check.bet_return_earned
+              }
             }
             await sbFetch(`${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`, 'PATCH', betUpdate, SUPABASE_URL, SUPABASE_KEY)
           }
@@ -379,6 +385,13 @@ async function checkBetResult(apiKey, apiSportsKey, bet) {
     if (bet.notes) betDesc += `\nNotes: ${bet.notes}`
   }
 
+  // Bet return text — if present and needs an online check (e.g. racing placement), ask Claude to evaluate it
+  const betReturnText = bet.bet_return_text || ''
+  const needsBetReturnCheck = betReturnText && /runs? (2nd|second|3rd|third)|place(?:s|d)?/i.test(betReturnText)
+  const betReturnSection = needsBetReturnCheck
+    ? `\n\nBET RETURN TERMS: "${betReturnText}"\nAlso determine if this bet return condition was met based on the result (e.g. did the selection finish 2nd or 3rd?). Include "bet_return_earned": true or false in your response.`
+    : ''
+
   const jsonShape = isMulti
     ? `{
   "outcome": "won" | "lost" | "void" | "pending",
@@ -393,7 +406,7 @@ async function checkBetResult(apiKey, apiSportsKey, bet) {
   "outcome": "won" | "lost" | "void" | "pending",
   "confidence": "high" | "medium" | "low",
   "reasoning": "brief explanation",
-  "needs_review": false
+  "needs_review": false${needsBetReturnCheck ? ',\n  "bet_return_earned": true | false' : ''}
 }`
 
   const confirmedScoresSection = confirmedScores
@@ -410,7 +423,7 @@ Rules:
 Respond with ONLY this JSON, nothing else:
 ${jsonShape}`
 
-  const userMessage = `Return JSON only. Check this bet:\n\n${betDesc}`
+  const userMessage = `Return JSON only. Check this bet:\n\n${betDesc}${betReturnSection}`
   const messages = [{ role: 'user', content: userMessage }]
 
   // ── Step 3: Agentic loop with web search fallback ──────────────────────────
