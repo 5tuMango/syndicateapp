@@ -17,6 +17,7 @@ export default function EditBet() {
   const [error, setError] = useState('')
   const [form, setForm] = useState({})
   const [legs, setLegs] = useState([])
+  const [rolloverSources, setRolloverSources] = useState([]) // available source bets for rollover
 
   // Void leg handling
   // null = not yet decided, 'whole' = entire bet void, 'partial' = leg removed, bet continues
@@ -49,7 +50,23 @@ export default function EditBet() {
       outcome: data.outcome,
       notes: data.notes || '',
       event_time: data.event_time ? data.event_time.substring(0, 16) : '',
+      is_rollover: data.is_rollover || false,
+      rollover_source_id: data.rollover_source_id || '',
+      intend_to_rollover: data.intend_to_rollover || false,
+      is_bonus_bet: data.is_bonus_bet || false,
     })
+
+    // Fetch available rollover source bets for this persona
+    if (data.persona_id) {
+      const { data: sources } = await supabase
+        .from('bets')
+        .select('id, event, stake, odds')
+        .eq('persona_id', data.persona_id)
+        .eq('intend_to_rollover', true)
+        .eq('outcome', 'won')
+        .neq('id', data.id)
+      setRolloverSources(sources || [])
+    }
 
     setLegs(
       [...(data.bet_legs || [])]
@@ -138,6 +155,9 @@ export default function EditBet() {
           outcome: finalOutcome,
           notes: form.notes.trim() || null,
           event_time: form.event_time || null,
+          is_rollover: form.is_rollover || false,
+          rollover_source_id: form.is_rollover && form.rollover_source_id ? form.rollover_source_id : null,
+          intend_to_rollover: form.intend_to_rollover || false,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -307,6 +327,58 @@ export default function EditBet() {
               />
             </div>
           )}
+
+          {/* Rollover fields */}
+          <div className="border-t border-slate-700 pt-4 space-y-3">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Rollover</p>
+
+            {/* Intend to rollover */}
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <div
+                onClick={() => set('intend_to_rollover', !form.intend_to_rollover)}
+                className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.intend_to_rollover ? 'bg-green-500' : 'bg-slate-600'}`}
+              >
+                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.intend_to_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
+              </div>
+              <span className="text-sm text-slate-300">Intend to rollover winnings <span className="text-slate-500 text-xs">(if won, profit tracked for re-betting)</span></span>
+            </label>
+
+            {/* Is rollover */}
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <div
+                onClick={() => set('is_rollover', !form.is_rollover)}
+                className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${form.is_rollover ? 'bg-blue-500' : 'bg-slate-600'}`}
+              >
+                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.is_rollover ? 'translate-x-5' : 'translate-x-1'}`} />
+              </div>
+              <span className="text-sm text-slate-300">Rollover stake <span className="text-slate-500 text-xs">(funded from prior winnings)</span></span>
+            </label>
+
+            {/* Source bet selector — shown when is_rollover is on */}
+            {form.is_rollover && (
+              <div>
+                <label className={lbl}>Source bet (rollover from)</label>
+                {rolloverSources.length > 0 ? (
+                  <select
+                    value={form.rollover_source_id}
+                    onChange={(e) => set('rollover_source_id', e.target.value)}
+                    className={inp}
+                  >
+                    <option value="">— select source bet —</option>
+                    {rolloverSources.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.event} (${(parseFloat(s.stake) * parseFloat(s.odds)).toFixed(2)} return)
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-xs text-slate-500 bg-slate-900/50 rounded-lg px-3 py-2">
+                    No won rollover-intent bets found for this persona.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Legs */}
