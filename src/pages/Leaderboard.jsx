@@ -136,6 +136,44 @@ export default function Leaderboard() {
 
   const weeklyStats = useMemo(() => calcWeeklyStats(weeklyMultis), [weeklyMultis])
 
+  // ── Weekly rotation & allocation tracking ─────────────────────────────────
+  const ALLOCATION_PER_WEEKEND = 50
+
+  const rotationStats = useMemo(() => {
+    if (teams.length < 2) return null
+
+    // Count completed weeks (any weekly multi with all non-void legs resolved)
+    const completedWeeks = weeklyMultis.filter((m) => {
+      const nonVoid = (m.weekly_multi_legs || []).filter((l) => l.outcome !== 'void')
+      return nonVoid.length > 0 && nonVoid.every((l) => l.outcome === 'won' || l.outcome === 'lost')
+    }).length
+
+    const upcomingWeekNum = completedWeeks + 1
+    // teams[0] bets odd weeks (1,3,5,7…), teams[1] bets even weeks (2,4,6…)
+    const thisWeekendTeam = teams[(upcomingWeekNum - 1) % 2]
+    const nextWeekendTeam = teams[upcomingWeekNum % 2]
+
+    // Completed weekends per team so far
+    const teamWeekends = [
+      Math.floor((completedWeeks + 1) / 2), // teams[0]: odd weeks
+      Math.floor(completedWeeks / 2),         // teams[1]: even weeks
+    ]
+
+    // Per-member allocation
+    const memberAllocations = members.map((m) => {
+      const teamIdx = teams.findIndex((t) => t.id === m.team_id)
+      const completedWeekends = teamIdx >= 0 ? teamWeekends[teamIdx] : 0
+      const expected = completedWeekends * ALLOCATION_PER_WEEKEND
+      const actual = bets
+        .filter((b) => betBelongsTo(b, m.id) && b.outcome !== 'void' && isRealStake(b))
+        .reduce((sum, b) => sum + parseFloat(b.stake), 0)
+      const remaining = Math.max(0, expected - actual)
+      return { memberId: m.id, expected, actual, remaining }
+    })
+
+    return { thisWeekendTeam, nextWeekendTeam, upcomingWeekNum, completedWeeks, memberAllocations }
+  }, [weeklyMultis, teams, members, bets, byPersonaId])
+
   const groupStats = useMemo(() => {
     const winnings = individStats.winnings + weeklyStats.winnings
     const staked = individStats.staked + weeklyStats.staked
@@ -224,6 +262,46 @@ export default function Leaderboard() {
           </button>
         ))}
       </div>
+
+      {/* Weekly rotation banner */}
+      {rotationStats && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* This weekend */}
+          <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+            <p className="text-green-400 text-xs uppercase tracking-wide font-semibold mb-1">
+              🏉 This Weekend — Week {rotationStats.upcomingWeekNum}
+            </p>
+            <p className="text-white font-bold text-lg">{rotationStats.thisWeekendTeam?.name}</p>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {members.filter((m) => m.team_id === rotationStats.thisWeekendTeam?.id).map((m) => {
+                const p = personaMap[m.id]
+                return (
+                  <span key={m.id} className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full">
+                    {p ? `${p.emoji} ${p.nickname}` : m.full_name}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+          {/* Next weekend */}
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
+            <p className="text-slate-400 text-xs uppercase tracking-wide font-semibold mb-1">
+              Next Weekend — Week {rotationStats.upcomingWeekNum + 1}
+            </p>
+            <p className="text-slate-300 font-bold text-lg">{rotationStats.nextWeekendTeam?.name}</p>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {members.filter((m) => m.team_id === rotationStats.nextWeekendTeam?.id).map((m) => {
+                const p = personaMap[m.id]
+                return (
+                  <span key={m.id} className="text-xs bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full">
+                    {p ? `${p.emoji} ${p.nickname}` : m.full_name}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Team standings */}
       {teamLeaderboard.length > 0 && (
@@ -330,6 +408,26 @@ export default function Leaderboard() {
                             ${paid.toFixed(0)} / ${target.toFixed(0)}
                           </span>
                           {penalties > 0 && <span className="text-xs text-purple-400">+${penalties.toFixed(0)}</span>}
+                        </div>
+                      )
+                    })()}
+                    {/* Weekly allocation */}
+                    {(() => {
+                      const alloc = rotationStats?.memberAllocations?.find((a) => a.memberId === member.id)
+                      if (!alloc || alloc.expected === 0) return null
+                      const pct = Math.min((alloc.actual / alloc.expected) * 100, 100)
+                      const hasRemaining = alloc.remaining > 0
+                      return (
+                        <div className="mt-1 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden max-w-[80px]">
+                            <div className={`h-full rounded-full ${hasRemaining ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className={`text-xs ${hasRemaining ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            ${alloc.actual.toFixed(0)} / ${alloc.expected.toFixed(0)} allocation
+                          </span>
+                          {hasRemaining && (
+                            <span className="text-xs text-amber-300 font-medium">${alloc.remaining.toFixed(0)} left</span>
+                          )}
                         </div>
                       )
                     })()}
