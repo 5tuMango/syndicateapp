@@ -64,7 +64,7 @@ export default function Teams() {
       supabase.from('personas').select('*').order('nickname'),
       supabase
         .from('bets')
-        .select('id, user_id, persona_id, stake, odds, outcome, is_bonus_bet')
+        .select('id, user_id, persona_id, stake, odds, outcome, is_bonus_bet, is_rollover, intend_to_rollover')
         .neq('outcome', 'pending'),
     ])
 
@@ -98,11 +98,13 @@ export default function Teams() {
   function teamStats(teamId) {
     const teamPersonas = personas.filter((p) => p.team_id === teamId)
     const teamBets = bets.filter((b) => teamPersonas.some((p) => betBelongsToPersona(b, p.id)))
-    const resulted = teamBets.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
+    // Exclude rollover bets from win/loss counts (same logic as Leaderboard)
+    const countable = teamBets.filter((b) => !b.intend_to_rollover && !b.is_rollover)
+    const resulted = countable.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
     const won = resulted.filter((b) => b.outcome === 'won').length
     const totalPL = teamBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
     const winRate = resulted.length > 0 ? Math.round((won / resulted.length) * 100) : 0
-    return { members: teamPersonas, betCount: teamBets.length, won, totalPL, winRate }
+    return { members: teamPersonas, betCount: countable.length, won, totalPL, winRate }
   }
 
   const teamsWithStats = teams.map((t) => ({ ...t, stats: teamStats(t.id) }))
