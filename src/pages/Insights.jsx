@@ -300,7 +300,10 @@ export default function Insights() {
     const memberStats = members.map((m) => {
       const weekResults = slots.map(({ multi }) => {
         if (!multi) return null
-        const leg = (multi.weekly_multi_legs || []).find((l) => l.assigned_user_id === m.id)
+        const leg = (multi.weekly_multi_legs || []).find((l) =>
+          l.assigned_user_id === m.id ||
+          (l.persona_id && byPersonaId[l.persona_id]?.claimed_by === m.id)
+        )
         if (!leg) return null
         return { outcome: leg.outcome, odds: leg.odds ? parseFloat(leg.odds) : null }
       })
@@ -317,7 +320,7 @@ export default function Insights() {
     })
 
     return { slots, memberStats }
-  }, [weeklyMultis, members])
+  }, [weeklyMultis, members, byPersonaId])
 
   if (loading) {
     return <div className="text-center text-slate-400 py-16">Loading…</div>
