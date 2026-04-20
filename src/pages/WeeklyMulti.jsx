@@ -78,6 +78,24 @@ export default function WeeklyMulti() {
   const [overrideOutcome, setOverrideOutcome] = useState('pending')
   const [savingOverride, setSavingOverride] = useState(false)
 
+  // Collapsed/expanded state for resolved multis (collapsed by default)
+  const [expandedResolved, setExpandedResolved] = useState(new Set())
+
+  function isResolved(multi) {
+    const legs = multi.weekly_multi_legs || []
+    if (legs.length === 0) return false
+    const nonVoid = legs.filter((l) => l.outcome !== 'void')
+    return nonVoid.length > 0 && nonVoid.every((l) => l.outcome === 'won' || l.outcome === 'lost')
+  }
+
+  function toggleResolved(id) {
+    setExpandedResolved((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
   useEffect(() => {
     load()
   }, [])
@@ -459,19 +477,22 @@ export default function WeeklyMulti() {
               (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
             )
             const odds = combinedOdds(legs)
-const wonCount = legs.filter((l) => l.outcome === 'won').length
+            const wonCount = legs.filter((l) => l.outcome === 'won').length
             const lostCount = legs.filter((l) => l.outcome === 'lost').length
             const nonVoidLegs = legs.filter((l) => l.outcome !== 'void')
             const multiWon = nonVoidLegs.length > 0 && nonVoidLegs.every((l) => l.outcome === 'won')
+            const multiLost = nonVoidLegs.some((l) => l.outcome === 'lost')
             const stake = parseFloat(multi.stake || 0)
             const winnings = multiWon && odds != null ? stake * odds : null
+            const resolved = isResolved(multi)
+            const isExpanded = !resolved || expandedResolved.has(multi.id)
 
             return (
               <div
                 key={multi.id}
-                className="bg-slate-800 rounded-xl border border-slate-700 p-5 space-y-4"
+                className={`bg-slate-800 rounded-xl border p-5 space-y-4 ${resolved ? 'border-slate-700/50 opacity-80' : 'border-slate-700'}`}
               >
-                {/* Multi header */}
+                {/* Multi header — always visible */}
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-white font-bold text-base">{multi.week_label}</h3>
@@ -484,7 +505,7 @@ const wonCount = legs.filter((l) => l.outcome === 'won').length
                     {/* Stake — editable by admin */}
                     <span className="text-slate-400 text-xs flex items-center gap-1">
                       Stake:{' '}
-                      {isAdmin ? (
+                      {isAdmin && !resolved ? (
                         <>
                           <input
                             type="number"
@@ -518,10 +539,17 @@ const wonCount = legs.filter((l) => l.outcome === 'won').length
                         <span className="text-red-400 font-semibold">{lostCount}L</span>
                       </span>
                     )}
+                    {/* Resolved outcome badge */}
+                    {resolved && (
+                      <span className={`text-xs px-2 py-0.5 rounded border font-semibold ${multiWon ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
+                        {multiWon ? 'WON' : 'LOST'}
+                      </span>
+                    )}
                   </div>
-                  {isAdmin && (
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <label className={`text-xs cursor-pointer transition-colors ${slipUploading ? 'text-slate-500 cursor-wait' : 'text-slate-400 hover:text-blue-400'}`}>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {isAdmin && !resolved && (
+                      <>
+                        <label className={`text-xs cursor-pointer transition-colors ${slipUploading ? 'text-slate-500 cursor-wait' : 'text-slate-400 hover:text-blue-400'}`}>
                           {slipUploading ? 'Reading slip…' : '📋 Upload Bet Slip'}
                           <input
                             type="file"
@@ -532,101 +560,112 @@ const wonCount = legs.filter((l) => l.outcome === 'won').length
                             onChange={(e) => handleSlipUpload(multi.id, e)}
                           />
                         </label>
-                      )}
+                        <button
+                          onClick={() => handleDeleteMulti(multi)}
+                          className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
+                    {/* Collapse toggle for resolved multis */}
+                    {resolved && (
                       <button
-                        onClick={() => handleDeleteMulti(multi)}
-                        className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+                        onClick={() => toggleResolved(multi.id)}
+                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
                       >
-                        Delete
+                        {isExpanded ? 'Hide legs ▴' : 'Show legs ▾'}
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
-                {/* Legs table */}
-                {legs.length > 0 ? (
-                  <div className="space-y-2">
-                    {legs.map((leg) => {
-                      const isMyLeg =
-                        (leg.persona_id && leg.persona_id === myPersona?.id) ||
-                        (!leg.persona_id && leg.assigned_user_id === user?.id)
-                      const legName = legEmoji(leg) || legPersonaName(leg)
-                      const canEdit =
-                        (isMyLeg || isAdmin)
-                      const hasFullDetails = leg.event || leg.selection
-                      const hasPickEntered = hasFullDetails || leg.raw_pick
+                {/* Legs table — hidden for resolved multis when collapsed */}
+                {isExpanded && (
+                  <>
+                    {legs.length > 0 ? (
+                      <div className="space-y-2">
+                        {legs.map((leg) => {
+                          const isMyLeg =
+                            (leg.persona_id && leg.persona_id === myPersona?.id) ||
+                            (!leg.persona_id && leg.assigned_user_id === user?.id)
+                          const legName = legEmoji(leg) || legPersonaName(leg)
+                          const canEdit = isMyLeg || isAdmin
+                          const hasFullDetails = leg.event || leg.selection
 
-                      return (
-                        <div
-                          key={leg.id}
-                          className="bg-slate-900/70 rounded-lg px-3 py-2.5"
-                        >
-                          {/* Row 1: name | inline input | odds | outcome */}
-                          <div className="flex items-center gap-2">
-                            <span className={`text-xl shrink-0 w-8 text-center ${isMyLeg ? 'ring-1 ring-green-500/50 rounded' : ''}`}>
-                              {legName}
-                            </span>
+                          return (
+                            <div
+                              key={leg.id}
+                              className="bg-slate-900/70 rounded-lg px-3 py-2.5"
+                            >
+                              {/* Row 1: name | inline input | odds | outcome */}
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xl shrink-0 w-8 text-center ${isMyLeg ? 'ring-1 ring-green-500/50 rounded' : ''}`}>
+                                  {legName}
+                                </span>
 
-                            {/* Inline pick field — editable if open & can edit, otherwise read-only */}
-                            {canEdit && !hasFullDetails ? (
-                              <input
-                                type="text"
-                                value={inlinePicks[leg.id] ?? (leg.raw_pick || '')}
-                                onChange={(e) => setInlinePicks(p => ({ ...p, [leg.id]: e.target.value }))}
-                                onBlur={() => saveInlinePick(leg)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur() } }}
-                                placeholder={isMyLeg ? 'e.g. Cats -16.5' : 'waiting...'}
-                                className="flex-1 min-w-0 bg-slate-800 border border-slate-600 focus:border-green-500 rounded px-2 py-1 text-sm text-white placeholder-slate-600 focus:outline-none transition-colors"
-                              />
-                            ) : (
-                              <span className="flex-1 min-w-0 text-sm truncate">
-                                {hasFullDetails ? (
-                                  <>
-                                    <span className="text-slate-200">{leg.selection || leg.event}</span>
-                                    {leg.description && <span className="text-slate-500"> · {leg.description}</span>}
-                                  </>
-                                ) : leg.raw_pick ? (
-                                  <span className="text-slate-300 italic">{leg.raw_pick}</span>
+                                {/* Inline pick field — editable if open & can edit, otherwise read-only */}
+                                {canEdit && !hasFullDetails ? (
+                                  <input
+                                    type="text"
+                                    value={inlinePicks[leg.id] ?? (leg.raw_pick || '')}
+                                    onChange={(e) => setInlinePicks(p => ({ ...p, [leg.id]: e.target.value }))}
+                                    onBlur={() => saveInlinePick(leg)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur() } }}
+                                    placeholder={isMyLeg ? 'e.g. Cats -16.5' : 'waiting...'}
+                                    className="flex-1 min-w-0 bg-slate-800 border border-slate-600 focus:border-green-500 rounded px-2 py-1 text-sm text-white placeholder-slate-600 focus:outline-none transition-colors"
+                                  />
                                 ) : (
-                                  <span className="text-slate-600 italic text-xs">Waiting for pick...</span>
+                                  <span className="flex-1 min-w-0 text-sm truncate">
+                                    {hasFullDetails ? (
+                                      <>
+                                        <span className="text-slate-200">{leg.selection || leg.event}</span>
+                                        {leg.description && <span className="text-slate-500"> · {leg.description}</span>}
+                                      </>
+                                    ) : leg.raw_pick ? (
+                                      <span className="text-slate-300 italic">{leg.raw_pick}</span>
+                                    ) : (
+                                      <span className="text-slate-600 italic text-xs">Waiting for pick...</span>
+                                    )}
+                                  </span>
                                 )}
-                              </span>
-                            )}
 
-                            {leg.odds != null && (
-                              <span className="text-slate-400 text-xs shrink-0">@ {parseFloat(leg.odds).toFixed(2)}</span>
-                            )}
-                            <OutcomePill outcome={leg.outcome} />
-                            {isAdmin && (
-                              <button
-                                onClick={() => openOverride(leg)}
-                                className="text-xs text-slate-500 hover:text-yellow-400 transition-colors shrink-0"
-                              >
-                                Result
-                              </button>
-                            )}
-                          </div>
+                                {leg.odds != null && (
+                                  <span className="text-slate-400 text-xs shrink-0">@ {parseFloat(leg.odds).toFixed(2)}</span>
+                                )}
+                                <OutcomePill outcome={leg.outcome} />
+                                {isAdmin && (
+                                  <button
+                                    onClick={() => openOverride(leg)}
+                                    className="text-xs text-slate-500 hover:text-yellow-400 transition-colors shrink-0"
+                                  >
+                                    Result
+                                  </button>
+                                )}
+                              </div>
 
-                          {/* Row 2: full event detail (after slip upload) */}
-                          {hasFullDetails && leg.event && leg.event !== leg.selection && (
-                            <div className="mt-1 ml-[6.5rem] text-xs text-slate-500">{leg.event}</div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-slate-600 text-sm italic">No legs added yet.</p>
-                )}
+                              {/* Row 2: full event detail (after slip upload) */}
+                              {hasFullDetails && leg.event && leg.event !== leg.selection && (
+                                <div className="mt-1 ml-[6.5rem] text-xs text-slate-500">{leg.event}</div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-slate-600 text-sm italic">No legs added yet.</p>
+                    )}
 
-                {/* Add member slot (admin, open only) */}
-                {isAdmin && (
-                  <button
-                    onClick={() => setAddingLeg(multi.id)}
-                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                  >
-                    + Add member slot
-                  </button>
+                    {/* Add member slot (admin, active only) */}
+                    {isAdmin && !resolved && (
+                      <button
+                        onClick={() => setAddingLeg(multi.id)}
+                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        + Add member slot
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )
