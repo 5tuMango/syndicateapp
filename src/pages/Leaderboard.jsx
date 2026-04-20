@@ -124,7 +124,7 @@ export default function Leaderboard() {
   const individStats = useMemo(() => {
     const pl = bets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
     const nonVoid = bets.filter((b) => b.outcome !== 'void')
-    const staked = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake), 0)
+    const staked = nonVoid.filter((b) => isRealStake(b)).reduce((sum, b) => sum + parseFloat(b.stake), 0)
     const resolved = bets.filter((b) => b.outcome !== 'pending' && b.outcome !== 'void')
     const won = bets.filter((b) => b.outcome === 'won').length
     const winnings = bets.reduce((sum, b) => sum + calcWinnings(b), 0)
