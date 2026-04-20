@@ -189,8 +189,11 @@ export default function Dashboard() {
     const totalPaidIn = contributions + penalties + unattributedFunds
     const balance = totalPaidIn + settledPL + weeklyStats.pl - pendingStakes - pendingWeeklyStakes
     const numPunters = personaList.length || 8
-    const payoutPerPunter = balance / numPunters
-    return { contributions, penalties, unattributed: unattributedFunds, totalPaidIn, totalTarget, toPay: Math.max(0, totalTarget - contributions - unattributedFunds), balance, pendingStakes: pendingStakes + pendingWeeklyStakes, payoutPerPunter }
+    // Still owed by all punters — this money will come in, so projected kitty is higher
+    const stillOwedTotal = personaList.reduce((s, p) => s + Math.max(0, parseFloat(p.contribution_target || 400) - parseFloat(p.amount_paid || 0)), 0)
+    const projectedKitty = balance + stillOwedTotal
+    const payoutPerPunter = projectedKitty / numPunters
+    return { contributions, penalties, unattributed: unattributedFunds, totalPaidIn, totalTarget, toPay: Math.max(0, totalTarget - contributions - unattributedFunds), balance, pendingStakes: pendingStakes + pendingWeeklyStakes, payoutPerPunter, projectedKitty }
   }, [personaList, bets, weeklyMultis, weeklyStats, unattributedFunds])
 
   const handleDelete = (id) => setBets((prev) => prev.filter((b) => b.id !== id))
@@ -295,6 +298,7 @@ export default function Dashboard() {
               <p className={`text-2xl font-bold ${kitty.payoutPerPunter >= 0 ? 'text-emerald-300' : 'text-red-400'}`}>
                 ${kitty.payoutPerPunter.toFixed(2)}
               </p>
+              <p className="text-xs text-slate-500 mt-0.5">incl. ${kitty.toPay.toFixed(0)} still owed</p>
             </div>
           </div>
           {/* Row 2: Contributions + Penalties + Unattributed + To Pay */}

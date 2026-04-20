@@ -23,6 +23,7 @@ export default function Profile() {
   const [kittyMsg, setKittyMsg] = useState(null)
   const [kittyBalance, setKittyBalance] = useState(null) // full group balance
   const [numPunters, setNumPunters] = useState(8)
+  const [stillOwedTotal, setStillOwedTotal] = useState(0)
 
   const isOwn = user?.id === id
   const isAdmin = authProfile?.is_admin
@@ -66,7 +67,7 @@ export default function Profile() {
 
     // Fetch kitty balance data
     const [allPersonasRes, allBetsRes, weeklyRes, kittySettingsRes] = await Promise.all([
-      supabase.from('personas').select('amount_paid, penalties_paid'),
+      supabase.from('personas').select('amount_paid, penalties_paid, contribution_target'),
       supabase.from('bets').select('stake, odds, outcome, is_bonus_bet, intend_to_rollover, is_rollover'),
       supabase.from('weekly_multis').select('stake, weekly_multi_legs(outcome, odds)'),
       supabase.from('kitty_settings').select('unattributed_funds').eq('id', 1).maybeSingle(),
@@ -98,7 +99,10 @@ export default function Profile() {
       return nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending')
     }).reduce((s, m) => s + parseFloat(m.stake || 0), 0)
 
-    setKittyBalance(totalPaid + unattributed + settledPL + weeklyPL - pendingStakes - pendingWeeklyStakes)
+    const balance = totalPaid + unattributed + settledPL + weeklyPL - pendingStakes - pendingWeeklyStakes
+    const owedByAll = allPersonas.reduce((s, p) => s + Math.max(0, parseFloat(p.contribution_target || 400) - parseFloat(p.amount_paid || 0)), 0)
+    setKittyBalance(balance)
+    setStillOwedTotal(owedByAll)
     setNumPunters(allPersonas.length || 8)
     setLoading(false)
   }
@@ -350,26 +354,35 @@ export default function Profile() {
                     {/* Payout section */}
                     {kittyBalance !== null && (
                       <div className="border-t border-slate-700 pt-4 space-y-3">
-                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">If kitty paid out today</p>
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Projected payout (incl. outstanding contributions)</p>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-slate-900/50 rounded-lg p-3">
                             <p className="text-xs text-slate-400 mb-1">Your share</p>
-                            <p className={`text-xl font-bold ${(kittyBalance / numPunters) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                              ${(kittyBalance / numPunters).toFixed(2)}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-0.5">balance ÷ {numPunters} punters</p>
+                            {(() => {
+                              const projectedKitty = kittyBalance + stillOwedTotal
+                              const share = projectedKitty / numPunters
+                              return (
+                                <>
+                                  <p className={`text-xl font-bold ${share >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                    ${share.toFixed(2)}
+                                  </p>
+                                  <p className="text-xs text-slate-500 mt-0.5">projected kitty ÷ {numPunters}</p>
+                                </>
+                              )
+                            })()}
                           </div>
                           <div className="bg-slate-900/50 rounded-lg p-3">
                             <p className="text-xs text-slate-400 mb-1">Net return</p>
                             {(() => {
-                              const share = kittyBalance / numPunters
+                              const projectedKitty = kittyBalance + stillOwedTotal
+                              const share = projectedKitty / numPunters
                               const net = share - owed
                               return (
                                 <>
                                   <p className={`text-xl font-bold ${net >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
                                     ${net.toFixed(2)}
                                   </p>
-                                  <p className="text-xs text-slate-500 mt-0.5">share − ${owed.toFixed(0)} still owed</p>
+                                  <p className="text-xs text-slate-500 mt-0.5">share − $${owed.toFixed(0)} owed</p>
                                 </>
                               )
                             })()}
