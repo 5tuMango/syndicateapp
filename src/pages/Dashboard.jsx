@@ -297,9 +297,9 @@ export default function Dashboard() {
             </div>
           </div>
           {/* Row 2: Contributions + Penalties + Unattributed + To Pay */}
-          <div className="grid grid-cols-4 gap-3 border-t border-slate-700 pt-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 border-t border-slate-700 pt-3">
             <div>
-              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Contributions</p>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Paid In</p>
               <p className="text-base font-bold text-white">${kitty.contributions.toFixed(0)}</p>
               <p className="text-xs text-slate-500 mt-0.5">of ${kitty.totalTarget.toFixed(0)}</p>
             </div>
@@ -308,7 +308,7 @@ export default function Dashboard() {
               <p className={`text-base font-bold ${kitty.penalties > 0 ? 'text-purple-400' : 'text-slate-600'}`}>${kitty.penalties.toFixed(0)}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Unattributed</p>
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Other</p>
               <p className={`text-base font-bold ${kitty.unattributed > 0 ? 'text-slate-300' : 'text-slate-600'}`}>${kitty.unattributed.toFixed(0)}</p>
             </div>
             <div>
