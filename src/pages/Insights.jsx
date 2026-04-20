@@ -95,20 +95,19 @@ export default function Insights() {
       ...Object.keys(weeklyWinByDate),
     ])].sort()
 
-    const runningPL = Object.fromEntries(members.map((m) => [m.id, 0]))
+    let runningPL = 0
     let runningWinnings = 0
     return allDates.map((date) => {
       resolved.filter((b) => b.date === date).forEach((b) => {
-        const mid = betMemberId(b)
-        runningPL[mid] = (runningPL[mid] || 0) + calcProfitLoss(b)
+        runningPL += calcProfitLoss(b)
         runningWinnings += calcWinnings(b)
       })
       runningWinnings += weeklyWinByDate[date] || 0
-      const point = { date: formatChartDate(date), __winnings: parseFloat(runningWinnings.toFixed(2)) }
-      members.forEach((m) => {
-        point[m.id] = parseFloat((runningPL[m.id] || 0).toFixed(2))
-      })
-      return point
+      return {
+        date: formatChartDate(date),
+        __winnings: parseFloat(runningWinnings.toFixed(2)),
+        __pl: parseFloat(runningPL.toFixed(2)),
+      }
     })
   }, [bets, weeklyMultis, members, byPersonaId])
 
@@ -369,7 +368,7 @@ export default function Insights() {
                 <p className="text-slate-500 text-xs mt-2">Sum of all payouts from winning bets</p>
               </div>
 
-              <Section title="Cumulative P&L & Winnings Over Time">
+              <Section title="Cumulative Winnings & P&L Over Time">
                 {pnlChartData.length < 2 ? (
                   <p className="text-slate-500 text-sm py-4 text-center">Not enough resolved bets for a trend yet.</p>
                 ) : (
@@ -386,35 +385,31 @@ export default function Insights() {
                         contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
                         labelStyle={{ color: '#e2e8f0' }}
                         formatter={(v, name) => {
-                          if (name === '__winnings') return [formatCurrency(v), 'Total Winnings']
-                          const m = members.find((m) => m.id === name)
-                          return [formatCurrency(v), displayName(m) || name]
+                          if (name === '__winnings') return [formatCurrency(v), 'Cumulative Winnings']
+                          if (name === '__pl') return [formatCurrency(v), 'Cumulative P&L']
+                          return [formatCurrency(v), name]
                         }}
                       />
                       <Legend
                         formatter={(value) => {
-                          if (value === '__winnings') return <span style={{ color: '#4ade80', fontSize: 12 }}>Total Winnings</span>
-                          const m = members.find((m) => m.id === value)
-                          return <span style={{ color: '#94a3b8', fontSize: 12 }}>{displayName(m) || value}</span>
+                          if (value === '__winnings') return <span style={{ color: '#4ade80', fontSize: 12 }}>Cumulative Winnings</span>
+                          if (value === '__pl') return <span style={{ color: '#818cf8', fontSize: 12 }}>Cumulative P&L</span>
+                          return value
                         }}
                       />
-                      {members.map((m, i) => (
-                        <Line
-                          key={m.id}
-                          type="monotone"
-                          dataKey={m.id}
-                          stroke={LINE_COLORS[i % LINE_COLORS.length]}
-                          strokeWidth={2}
-                          dot={false}
-                          activeDot={{ r: 4 }}
-                        />
-                      ))}
                       <Line
                         type="monotone"
                         dataKey="__winnings"
                         stroke="#4ade80"
                         strokeWidth={2}
-                        strokeDasharray="5 3"
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="__pl"
+                        stroke="#818cf8"
+                        strokeWidth={2}
                         dot={false}
                         activeDot={{ r: 4 }}
                       />
