@@ -272,15 +272,15 @@ export default function Insights() {
         .map((l) => ({ ...l, memberId: betMemberId(b) }))
     )
 
-    // Get unique market types (normalised descriptions)
-    const marketTypes = [...new Set(resolvedLegs.map((l) => normalizeMarketType(l.description)).filter(Boolean))].sort()
+    // Get unique market types (normalised descriptions — pass selection for disposal bucketing)
+    const marketTypes = [...new Set(resolvedLegs.map((l) => normalizeMarketType(l.description, l.selection)).filter(Boolean))].sort()
 
     return {
       marketTypes,
       byMember: members.map((m) => {
         const myLegs = resolvedLegs.filter((l) => l.memberId === m.id)
         const rows = marketTypes.map((mt) => {
-          const legs = myLegs.filter((l) => normalizeMarketType(l.description) === mt)
+          const legs = myLegs.filter((l) => normalizeMarketType(l.description, l.selection) === mt)
           if (legs.length === 0) return { mt, w: 0, l: 0, rate: null }
           const won = legs.filter((l) => l.outcome === 'won').length
           return { mt, w: won, l: legs.length - won, rate: Math.round((won / legs.length) * 100) }

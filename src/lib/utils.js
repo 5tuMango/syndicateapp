@@ -79,10 +79,9 @@ export const calcProfitLoss = (bet) => {
  * Normalise a bet leg description to a canonical market type.
  * Groups common variations of the same bet type so they appear as one in Insights.
  */
-export function normalizeMarketType(description) {
+export function normalizeMarketType(description, selection = '') {
   if (!description) return description
   const d = description.trim()
-  const lower = d.toLowerCase()
 
   // ── Try Scorer variants (exclude "First" and multi-try) ──────────────────
   // Keep "First Try Scorer" distinct
@@ -96,10 +95,16 @@ export function normalizeMarketType(description) {
   if (/anytime (try )?scorer/i.test(d)) return 'Anytime Scorer'
 
   // ── Player Disposals — split by line: ≤24 vs 25+ ────────────────────────
-  if (/disposal/i.test(d)) {
-    const numMatch = d.match(/(\d+)/)
+  // description is usually just "Player Disposals" with no number, so we
+  // extract the threshold from selection (e.g. "Jack Steele 22+ Disposals",
+  // "Noah Anderson Under (25.5) Disposals", "Sam Berry Over 19.5 Disposals")
+  if (/disposal/i.test(d) || /disposal/i.test(selection)) {
+    const src = selection || d
+    const numMatch =
+      src.match(/(\d+(?:\.\d+)?)\+?\s*[Dd]isposal/i) ||   // "22+ Disposals"
+      src.match(/(?:over|under)\s*\(?(\d+(?:\.\d+)?)\)?/i) // "Over (25.5)" / "Under 23.5"
     if (numMatch) {
-      const line = parseInt(numMatch[1])
+      const line = parseFloat(numMatch[1])
       return line >= 25 ? 'Player Disposals (25+)' : 'Player Disposals (24 or less)'
     }
     return 'Player Disposals'
