@@ -59,7 +59,7 @@ export default function Leaderboard() {
 
   async function fetchData() {
     const [betsRes, membersRes, teamsRes, weeklyRes] = await Promise.all([
-      supabase.from('bets').select('user_id, persona_id, stake, odds, outcome, is_bonus_bet, bet_return_value'),
+      supabase.from('bets').select('user_id, persona_id, stake, odds, outcome, is_bonus_bet, is_rollover, intend_to_rollover, bet_return_value'),
       supabase.from('profiles').select('id, username, full_name, team_id').order('full_name'),
       supabase.from('teams').select('*').order('created_at'),
       supabase.from('weekly_multis').select('*, weekly_multi_legs(*)'),
