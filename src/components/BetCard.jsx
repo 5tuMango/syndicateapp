@@ -43,12 +43,12 @@ function CountdownBadge({ eventTime }) {
 }
 
 // ── Prominent countdown bar on the collapsed card face ────────────────────────
-function NextEventBar({ eventTime, legs }) {
+function NextEventBar({ eventTime, legs, date }) {
   const now = useNow()
 
   // Pick the target: single bet uses eventTime, multi uses earliest leg with event_time
-  // Falls back to bet.event_time if no legs have individual event_times
-  const { targetTime, targetDate } = (() => {
+  // Falls back to bet.event_time, then to date-only (no countdown possible)
+  const { targetTime, targetDate, dateOnly } = (() => {
     if (legs?.length) {
       const withTime = legs
         .filter((l) => l.event_time)
@@ -58,16 +58,32 @@ function NextEventBar({ eventTime, legs }) {
       // Prefer upcoming legs; if all are in the past fall back to earliest
       const upcoming = withTime.filter((l) => l.d.getTime() > now)
       const target = upcoming[0] || withTime[0]
-      if (target) return { targetTime: target.t, targetDate: target.d }
+      if (target) return { targetTime: target.t, targetDate: target.d, dateOnly: false }
     }
     if (eventTime) {
       const d = eventTimeToDate(eventTime)
-      return { targetTime: eventTime, targetDate: d }
+      return { targetTime: eventTime, targetDate: d, dateOnly: false }
     }
-    return { targetTime: null, targetDate: null }
+    // Date-only fallback — no countdown, just show the date
+    if (date) {
+      return { targetTime: null, targetDate: new Date(date + 'T00:00:00'), dateOnly: true }
+    }
+    return { targetTime: null, targetDate: null, dateOnly: false }
   })()
 
-  if (!targetDate || !targetTime) return null
+  if (!targetDate) return null
+
+  // Date-only: just show the date with no countdown
+  if (dateOnly) {
+    const dateStr = targetDate.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+    return (
+      <div className="flex items-center gap-2 rounded-lg px-3 py-2 bg-slate-700/40 border border-slate-600/40">
+        <span className="text-slate-400 text-xs">Date:</span>
+        <span className="text-slate-300 text-sm font-medium">{dateStr}</span>
+        <span className="text-slate-500 text-xs ml-auto">No time set</span>
+      </div>
+    )
+  }
 
   const diff = targetDate - now
   // Hide if > 4h past kickoff (game well and truly over)
@@ -550,6 +566,7 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
         <NextEventBar
           eventTime={bet.event_time}
           legs={legs}
+          date={bet.date}
         />
       )}
 
