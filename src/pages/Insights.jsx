@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
-import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor, SPORTS } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, normalizeMarketType, profitLossColor, SPORTS } from '../lib/utils'
 
 const TABS = ['Overview', 'By Sport', 'Leg Types', 'Multi Bets', 'Risk Profile', 'Weekly']
 
@@ -261,15 +261,15 @@ export default function Insights() {
         .map((l) => ({ ...l, user_id: betMemberId(b) }))
     )
 
-    // Get unique market types (descriptions)
-    const marketTypes = [...new Set(resolvedLegs.map((l) => l.description).filter(Boolean))].sort()
+    // Get unique market types (normalised descriptions)
+    const marketTypes = [...new Set(resolvedLegs.map((l) => normalizeMarketType(l.description)).filter(Boolean))].sort()
 
     return {
       marketTypes,
       byMember: members.map((m) => {
         const myLegs = resolvedLegs.filter((l) => l.user_id === m.id)
         const rows = marketTypes.map((mt) => {
-          const legs = myLegs.filter((l) => l.description === mt)
+          const legs = myLegs.filter((l) => normalizeMarketType(l.description) === mt)
           if (legs.length === 0) return { mt, w: 0, l: 0, rate: null }
           const won = legs.filter((l) => l.outcome === 'won').length
           return { mt, w: won, l: legs.length - won, rate: Math.round((won / legs.length) * 100) }

@@ -127,7 +127,7 @@ export default function Leaderboard() {
     const staked = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake), 0)
     const resolved = bets.filter((b) => b.outcome !== 'pending' && b.outcome !== 'void')
     const won = bets.filter((b) => b.outcome === 'won').length
-    const winnings = bets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
+    const winnings = bets.reduce((sum, b) => sum + calcWinnings(b), 0)
     const sumStakeOdds = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
     const boldness = nonVoid.length > 0 ? sumStakeOdds / nonVoid.length : 0
     const riskProfile = staked > 0 ? sumStakeOdds / staked : 0

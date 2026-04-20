@@ -75,6 +75,30 @@ export const calcProfitLoss = (bet) => {
   return 0
 }
 
+/**
+ * Normalise a bet leg description to a canonical market type.
+ * Groups common variations of the same bet type so they appear as one in Insights.
+ */
+export function normalizeMarketType(description) {
+  if (!description) return description
+  const d = description.trim()
+  const lower = d.toLowerCase()
+
+  // ── Try Scorer variants (exclude "First" and multi-try) ──────────────────
+  // Keep "First Try Scorer" distinct
+  if (/first try scorer/i.test(d)) return 'First Try Scorer'
+  // Keep multi-try bets distinct
+  if (/2\+\s*tries|to score 2\+|score two|2 or more tries/i.test(d)) return '2+ Tries'
+  // Everything else that looks like a try scorer → canonical label
+  if (/try scorer|player tries|to score a try|to score.*try/i.test(d)) return 'Try Scorer'
+
+  // ── Anytime scorer variants ──────────────────────────────────────────────
+  if (/anytime (try )?scorer/i.test(d)) return 'Anytime Scorer'
+
+  // Pass through unchanged
+  return d
+}
+
 // Whether a bet's stake counts as real capital risked
 // Rollover stakes excluded (funded from prior winnings, not new money)
 // Bonus stakes excluded (free bets from the bookmaker)
