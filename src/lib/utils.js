@@ -95,6 +95,16 @@ export function normalizeMarketType(description) {
   // ── Anytime scorer variants ──────────────────────────────────────────────
   if (/anytime (try )?scorer/i.test(d)) return 'Anytime Scorer'
 
+  // ── Player Disposals — split by line: ≤24 vs 25+ ────────────────────────
+  if (/disposal/i.test(d)) {
+    const numMatch = d.match(/(\d+)/)
+    if (numMatch) {
+      const line = parseInt(numMatch[1])
+      return line >= 25 ? 'Player Disposals (25+)' : 'Player Disposals (24 or less)'
+    }
+    return 'Player Disposals'
+  }
+
   // Pass through unchanged
   return d
 }
