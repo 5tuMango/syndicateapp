@@ -132,7 +132,7 @@ export default function Insights() {
       all: '1970-01-01',
     }
     return members.map((m) => {
-      const mb = bets.filter((b) => betMemberId(b) === m.id)
+      const mb = bets.filter((b) => betMemberId(b) === m.id && !b.is_rollover)
       const rates = {}
       for (const [label, cutoff] of Object.entries(cutoffs)) {
         const period = mb.filter((b) => b.date >= cutoff && b.outcome !== 'void')
@@ -225,7 +225,7 @@ export default function Insights() {
   // ── Risk profile ─────────────────────────────────────────────────────────
   const riskProfiles = useMemo(() => {
     return members.map((m) => {
-      const mb = bets.filter((b) => betMemberId(b) === m.id && b.outcome !== 'void')
+      const mb = bets.filter((b) => betMemberId(b) === m.id && b.outcome !== 'void' && !b.is_rollover)
       if (mb.length === 0) return { member: m, empty: true }
       const avgOdds = mb.reduce((s, b) => s + parseFloat(b.odds), 0) / mb.length
       const avgStake = mb.reduce((s, b) => s + parseFloat(b.stake), 0) / mb.length
