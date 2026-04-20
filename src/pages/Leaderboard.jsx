@@ -397,17 +397,18 @@ export default function Leaderboard() {
                       const paid = parseFloat(p.amount_paid || 0)
                       const penalties = parseFloat(p.penalties_paid || 0)
                       const target = parseFloat(p.contribution_target || 400)
+                      const owed = Math.max(0, target - paid)
                       const pct = Math.min((paid / target) * 100, 100)
                       const full = paid >= target
                       return (
-                        <div className="mt-1.5 flex items-center gap-2">
+                        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                           <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden max-w-[80px]">
                             <div className={`h-full rounded-full ${full ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
                           </div>
-                          <span className={`text-xs ${full ? 'text-emerald-400' : 'text-amber-400'}`}>
-                            ${paid.toFixed(0)} / ${target.toFixed(0)}
-                          </span>
-                          {penalties > 0 && <span className="text-xs text-purple-400">+${penalties.toFixed(0)}</span>}
+                          <span className="text-xs text-emerald-400">Paid ${paid.toFixed(0)}</span>
+                          {!full && <span className="text-xs text-amber-400">· Owes ${owed.toFixed(0)}</span>}
+                          {full && <span className="text-xs text-emerald-400">· Kitty paid ✓</span>}
+                          {penalties > 0 && <span className="text-xs text-purple-400">+${penalties.toFixed(0)} fines</span>}
                         </div>
                       )
                     })()}
