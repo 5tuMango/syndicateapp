@@ -88,11 +88,15 @@ export default function Leaderboard() {
   }
 
   function calcStats(memberBets) {
-    const resolved = memberBets.filter((b) => b.outcome !== 'pending' && b.outcome !== 'void')
-    const won = memberBets.filter((b) => b.outcome === 'won').length
-    const lost = memberBets.filter((b) => b.outcome === 'lost').length
-    const pending = memberBets.filter((b) => b.outcome === 'pending').length
-    const voided = memberBets.filter((b) => b.outcome === 'void').length
+    // Exclude rollover bets from win/loss/total counts — they're not real settled capital bets.
+    // intend_to_rollover wins are pass-through (winnings get re-bet); is_rollover are funded
+    // from that pass-through pool. P&L and staked use all bets via their own helpers.
+    const countable = memberBets.filter((b) => !b.intend_to_rollover && !b.is_rollover)
+    const resolved = countable.filter((b) => b.outcome !== 'pending' && b.outcome !== 'void')
+    const won = countable.filter((b) => b.outcome === 'won').length
+    const lost = countable.filter((b) => b.outcome === 'lost').length
+    const pending = countable.filter((b) => b.outcome === 'pending').length
+    const voided = countable.filter((b) => b.outcome === 'void').length
     const pl = memberBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
     const staked = memberBets.filter((b) => b.outcome !== 'void' && isRealStake(b)).reduce((sum, b) => sum + parseFloat(b.stake), 0)
     const winnings = memberBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + calcWinnings(b), 0)
@@ -104,7 +108,7 @@ export default function Leaderboard() {
       .reduce((sum, b) => sum + parseFloat(b.bet_return_value), 0)
     const bonusBetsUsed = memberBets.filter((b) => b.is_bonus_bet)
       .reduce((sum, b) => sum + parseFloat(b.stake), 0)
-    return { total: memberBets.length, won, lost, pending, voided, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, pl, staked, winnings, betBoldness, riskProfile, betReturnsEarned, bonusBetsUsed }
+    return { total: countable.length, won, lost, pending, voided, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, pl, staked, winnings, betBoldness, riskProfile, betReturnsEarned, bonusBetsUsed }
   }
 
   // A bet belongs to a persona if persona_id matches directly,
