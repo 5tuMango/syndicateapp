@@ -47,7 +47,7 @@ export default function Leaderboard() {
   const { user } = useAuth()
   const { byUserId: personaMap, byPersonaId } = usePersonas()
   const [bets, setBets] = useState([])
-  const [members, setMembers] = useState([])
+  const [members, setMembers] = useState([]) // personas with team_id resolved
   const [teams, setTeams] = useState([])
   const [weeklyMultis, setWeeklyMultis] = useState([])
   const [loading, setLoading] = useState(true)
@@ -58,14 +58,30 @@ export default function Leaderboard() {
   }, [])
 
   async function fetchData() {
-    const [betsRes, membersRes, teamsRes, weeklyRes] = await Promise.all([
+    const [betsRes, personasRes, profilesRes, teamsRes, weeklyRes] = await Promise.all([
       supabase.from('bets').select('user_id, persona_id, stake, odds, outcome, is_bonus_bet, is_rollover, intend_to_rollover, bet_return_value'),
-      supabase.from('profiles').select('id, username, full_name, team_id').order('full_name'),
+      // select('*') so we get team_id if the column exists, without error if it doesn't
+      supabase.from('personas').select('*').order('nickname'),
+      // keep profiles for team fallback (pre-migration) and kitty data if needed
+      supabase.from('profiles').select('id, team_id'),
       supabase.from('teams').select('*').order('created_at'),
       supabase.from('weekly_multis').select('*, weekly_multi_legs(*)'),
     ])
+
+    // Build profile→team fallback map for claimed personas pre-migration
+    const profileTeamMap = {}
+    for (const p of profilesRes.data || []) {
+      if (p.team_id) profileTeamMap[p.id] = p.team_id
+    }
+
+    // Augment personas: if team_id not yet on persona row, derive from profile
+    const personas = (personasRes.data || []).map((p) => ({
+      ...p,
+      team_id: p.team_id || (p.claimed_by ? (profileTeamMap[p.claimed_by] ?? null) : null),
+    }))
+
     setBets(betsRes.data || [])
-    setMembers(membersRes.data || [])
+    setMembers(personas)
     setTeams(teamsRes.data || [])
     setWeeklyMultis(weeklyRes.data || [])
     setLoading(false)
@@ -80,44 +96,36 @@ export default function Leaderboard() {
     const pl = memberBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
     const staked = memberBets.filter((b) => b.outcome !== 'void' && isRealStake(b)).reduce((sum, b) => sum + parseFloat(b.stake), 0)
     const winnings = memberBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + calcWinnings(b), 0)
-    // Bet Boldness: avg(stake × odds) per bet — rewards both big stakes AND long odds
-    // Risk Profile: sum(stake × odds) / total staked = stake-weighted avg odds — pure measure of how risky your selections are
     const nonVoid = memberBets.filter((b) => b.outcome !== 'void')
     const sumStakeOdds = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
     const betBoldness = nonVoid.length > 0 ? sumStakeOdds / nonVoid.length : 0
     const riskProfile = staked > 0 ? sumStakeOdds / staked : 0
-    // Bet returns earned (only when the bet lost — that's when the return is triggered)
     const betReturnsEarned = memberBets.filter((b) => b.outcome === 'lost' && b.bet_return_value > 0)
       .reduce((sum, b) => sum + parseFloat(b.bet_return_value), 0)
-    // Bonus bets used (sum of stakes placed as bonus bets)
     const bonusBetsUsed = memberBets.filter((b) => b.is_bonus_bet)
       .reduce((sum, b) => sum + parseFloat(b.stake), 0)
     return { total: memberBets.length, won, lost, pending, voided, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, pl, staked, winnings, betBoldness, riskProfile, betReturnsEarned, bonusBetsUsed }
   }
 
-  // Match a bet to a member: use persona_id if set, otherwise fall back to user_id
-  function betBelongsTo(bet, userId) {
-    if (bet.persona_id) {
-      return byPersonaId[bet.persona_id]?.claimed_by === userId
-    }
-    return bet.user_id === userId
+  // A bet belongs to a persona if persona_id matches directly,
+  // or (no persona_id set) if the bet's user_id matches this persona's claimed_by
+  function betBelongsToPersona(bet, personaId) {
+    if (bet.persona_id) return bet.persona_id === personaId
+    const persona = byPersonaId[personaId]
+    return !!(persona?.claimed_by && bet.user_id === persona.claimed_by)
   }
 
   const leaderboard = useMemo(() => {
     return members
-      .map((member) => ({ ...member, ...calcStats(bets.filter((b) => betBelongsTo(b, member.id))) }))
+      .map((persona) => ({ ...persona, ...calcStats(bets.filter((b) => betBelongsToPersona(b, persona.id))) }))
       .sort((a, b) => b[sortKey] - a[sortKey])
   }, [bets, members, sortKey, byPersonaId])
 
   const teamLeaderboard = useMemo(() => {
     return teams.map((team) => {
-      const teamMembers = members.filter((m) => m.team_id === team.id)
-      const memberIds = new Set(teamMembers.map((m) => m.id))
-      const teamBets = bets.filter((b) => {
-        const ownerId = bet => byPersonaId[bet.persona_id]?.claimed_by || bet.user_id
-        return memberIds.has(ownerId(b))
-      })
-      return { ...team, memberCount: teamMembers.length, ...calcStats(teamBets) }
+      const teamPersonas = members.filter((m) => m.team_id === team.id)
+      const teamBets = bets.filter((b) => teamPersonas.some((p) => betBelongsToPersona(b, p.id)))
+      return { ...team, memberCount: teamPersonas.length, ...calcStats(teamBets) }
     }).sort((a, b) => b[sortKey] - a[sortKey])
   }, [bets, members, teams, sortKey, byPersonaId])
 
@@ -142,33 +150,29 @@ export default function Leaderboard() {
   const rotationStats = useMemo(() => {
     if (teams.length < 2) return null
 
-    // Count completed weeks (any weekly multi with all non-void legs resolved)
     const completedWeeks = weeklyMultis.filter((m) => {
       const nonVoid = (m.weekly_multi_legs || []).filter((l) => l.outcome !== 'void')
       return nonVoid.length > 0 && nonVoid.every((l) => l.outcome === 'won' || l.outcome === 'lost')
     }).length
 
     const upcomingWeekNum = completedWeeks + 1
-    // teams[1] bets odd weeks (1,3,5,7…), teams[0] bets even weeks (2,4,6…)
     const thisWeekendTeam = teams[upcomingWeekNum % 2]
     const nextWeekendTeam = teams[(upcomingWeekNum - 1) % 2]
 
-    // Completed weekends per team so far
     const teamWeekends = [
-      Math.floor(completedWeeks / 2),         // teams[0]: even weeks
-      Math.floor((completedWeeks + 1) / 2),   // teams[1]: odd weeks
+      Math.floor(completedWeeks / 2),
+      Math.floor((completedWeeks + 1) / 2),
     ]
 
-    // Per-member allocation
-    const memberAllocations = members.map((m) => {
-      const teamIdx = teams.findIndex((t) => t.id === m.team_id)
+    const memberAllocations = members.map((persona) => {
+      const teamIdx = teams.findIndex((t) => t.id === persona.team_id)
       const completedWeekends = teamIdx >= 0 ? teamWeekends[teamIdx] : 0
       const expected = completedWeekends * ALLOCATION_PER_WEEKEND
       const actual = bets
-        .filter((b) => betBelongsTo(b, m.id) && b.outcome !== 'void' && isRealStake(b))
+        .filter((b) => betBelongsToPersona(b, persona.id) && b.outcome !== 'void' && isRealStake(b))
         .reduce((sum, b) => sum + parseFloat(b.stake), 0)
       const remaining = Math.max(0, expected - actual)
-      return { memberId: m.id, expected, actual, remaining }
+      return { memberId: persona.id, expected, actual, remaining }
     })
 
     return { thisWeekendTeam, nextWeekendTeam, upcomingWeekNum, completedWeeks, memberAllocations }
@@ -206,7 +210,6 @@ export default function Leaderboard() {
       {/* Group summary */}
       <div className="space-y-2">
         <div className="flex gap-3 overflow-x-auto pb-1">
-          {/* Total Winnings — hero card pinned left */}
           <div className="bg-green-500/15 rounded-lg border border-green-500/40 p-4 shrink-0 min-w-[140px]">
             <p className="text-green-400/70 text-xs uppercase tracking-wide">Total Winnings</p>
             <p className="text-2xl font-bold mt-1 text-green-400">${groupStats.winnings.toFixed(2)}</p>
@@ -226,7 +229,6 @@ export default function Leaderboard() {
           ))}
         </div>
 
-        {/* Breakdown: Individual vs Weekly */}
         <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 px-4 py-3 space-y-2">
           {[
             { label: 'Indiv', s: individStats },
@@ -266,38 +268,30 @@ export default function Leaderboard() {
       {/* Weekly rotation banner */}
       {rotationStats && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* This weekend */}
           <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
             <p className="text-green-400 text-xs uppercase tracking-wide font-semibold mb-1">
               🏉 This Weekend — Week {rotationStats.upcomingWeekNum}
             </p>
             <p className="text-white font-bold text-lg">{rotationStats.thisWeekendTeam?.name}</p>
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {members.filter((m) => m.team_id === rotationStats.thisWeekendTeam?.id).map((m) => {
-                const p = personaMap[m.id]
-                return (
-                  <span key={m.id} className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full">
-                    {p ? `${p.emoji} ${p.nickname}` : m.full_name}
-                  </span>
-                )
-              })}
+              {members.filter((m) => m.team_id === rotationStats.thisWeekendTeam?.id).map((m) => (
+                <span key={m.id} className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full">
+                  {m.emoji} {m.nickname}
+                </span>
+              ))}
             </div>
           </div>
-          {/* Next weekend */}
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
             <p className="text-slate-400 text-xs uppercase tracking-wide font-semibold mb-1">
               Next Weekend — Week {rotationStats.upcomingWeekNum + 1}
             </p>
             <p className="text-slate-300 font-bold text-lg">{rotationStats.nextWeekendTeam?.name}</p>
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {members.filter((m) => m.team_id === rotationStats.nextWeekendTeam?.id).map((m) => {
-                const p = personaMap[m.id]
-                return (
-                  <span key={m.id} className="text-xs bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full">
-                    {p ? `${p.emoji} ${p.nickname}` : m.full_name}
-                  </span>
-                )
-              })}
+              {members.filter((m) => m.team_id === rotationStats.nextWeekendTeam?.id).map((m) => (
+                <span key={m.id} className="text-xs bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full">
+                  {m.emoji} {m.nickname}
+                </span>
+              ))}
             </div>
           </div>
         </div>
@@ -353,50 +347,43 @@ export default function Leaderboard() {
           <div className="text-center text-slate-400 py-16">No bets recorded yet.</div>
         ) : (
           <div className="space-y-2">
-            {leaderboard.map((member, i) => {
-              const isMe = member.id === user?.id
-              const noActivity = member.total === 0
-              return (
-                <Link
-                  key={member.id}
-                  to={`/profile/${member.id}`}
-                  className={`flex items-center gap-4 bg-slate-800 rounded-lg border p-4 hover:border-slate-500 transition-colors ${
-                    isMe ? 'border-green-500/40' : 'border-slate-700'
-                  } ${noActivity ? 'opacity-50' : ''}`}
-                >
+            {leaderboard.map((persona, i) => {
+              const isMe = persona.claimed_by === user?.id
+              const noActivity = persona.total === 0
+              const isClaimed = !!persona.claimed_by
+
+              const rowContent = (
+                <>
                   <div className={`text-xl font-bold w-7 text-center shrink-0 ${RANK_COLORS[i] ?? 'text-slate-600'}`}>
                     {i + 1}
                   </div>
                   <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-xl shrink-0">
-                    {personaMap[member.id]?.emoji || (member.full_name || member.username)[0].toUpperCase()}
+                    {persona.emoji}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-white text-sm">
-                        {personaMap[member.id]?.nickname || member.full_name || member.username}
-                      </span>
+                      <span className="font-semibold text-white text-sm">{persona.nickname}</span>
                       {isMe && <span className="text-xs text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded">You</span>}
+                      {!isClaimed && <span className="text-xs text-slate-500 bg-slate-700/60 px-1.5 py-0.5 rounded">Unclaimed</span>}
                     </div>
-                    {member.total > 0 ? (
+                    {persona.total > 0 ? (
                       <div className="flex gap-2 text-xs text-slate-400 mt-0.5 flex-wrap">
-                        <span>{member.total} bets</span>
-                        <span className="text-green-400">{member.won}W</span>
-                        <span className="text-red-400">{member.lost}L</span>
-                        {member.pending > 0 && <span className="text-yellow-400">{member.pending}P</span>}
-                        {member.voided > 0 && <span className="text-slate-500">{member.voided}V</span>}
-                        <span>· ${member.staked.toFixed(2)} staked</span>
-                        {member.bonusBetsUsed > 0 && <span className="text-amber-400">· ${member.bonusBetsUsed.toFixed(2)} bonus</span>}
+                        <span>{persona.total} bets</span>
+                        <span className="text-green-400">{persona.won}W</span>
+                        <span className="text-red-400">{persona.lost}L</span>
+                        {persona.pending > 0 && <span className="text-yellow-400">{persona.pending}P</span>}
+                        {persona.voided > 0 && <span className="text-slate-500">{persona.voided}V</span>}
+                        <span>· ${persona.staked.toFixed(2)} staked</span>
+                        {persona.bonusBetsUsed > 0 && <span className="text-amber-400">· ${persona.bonusBetsUsed.toFixed(2)} bonus</span>}
                       </div>
                     ) : (
                       <p className="text-xs text-slate-500 mt-0.5">No bets yet</p>
                     )}
                     {/* Kitty contribution */}
                     {(() => {
-                      const p = personaMap[member.id]
-                      if (!p) return null
-                      const paid = parseFloat(p.amount_paid || 0)
-                      const penalties = parseFloat(p.penalties_paid || 0)
-                      const target = parseFloat(p.contribution_target || 400)
+                      const paid = parseFloat(persona.amount_paid || 0)
+                      const penalties = parseFloat(persona.penalties_paid || 0)
+                      const target = parseFloat(persona.contribution_target || 400)
                       const owed = Math.max(0, target - paid)
                       const pct = Math.min((paid / target) * 100, 100)
                       const full = paid >= target
@@ -414,7 +401,7 @@ export default function Leaderboard() {
                     })()}
                     {/* Weekly allocation */}
                     {(() => {
-                      const alloc = rotationStats?.memberAllocations?.find((a) => a.memberId === member.id)
+                      const alloc = rotationStats?.memberAllocations?.find((a) => a.memberId === persona.id)
                       if (!alloc || alloc.expected === 0) return null
                       const pct = Math.min((alloc.actual / alloc.expected) * 100, 100)
                       const hasRemaining = alloc.remaining > 0
@@ -434,17 +421,36 @@ export default function Leaderboard() {
                     })()}
                   </div>
                   <div className="text-right shrink-0">
-                    <div className={`text-base font-bold ${activeSortOpt.color(member)}`}>
-                      {activeSortOpt.format(member)}
+                    <div className={`text-base font-bold ${activeSortOpt.color(persona)}`}>
+                      {activeSortOpt.format(persona)}
                     </div>
                     {sortKey !== 'winnings' && (
-                      <div className="text-xs text-slate-500">Won ${member.winnings.toFixed(2)}</div>
+                      <div className="text-xs text-slate-500">Won ${persona.winnings.toFixed(2)}</div>
                     )}
                     {sortKey !== 'pl' && (
-                      <div className={`text-xs ${profitLossColor(member.pl)}`}>P&L {formatCurrency(member.pl)}</div>
+                      <div className={`text-xs ${profitLossColor(persona.pl)}`}>P&L {formatCurrency(persona.pl)}</div>
                     )}
                   </div>
+                </>
+              )
+
+              const rowClass = `flex items-center gap-4 bg-slate-800 rounded-lg border p-4 transition-colors ${
+                isMe ? 'border-green-500/40' : 'border-slate-700'
+              } ${noActivity ? 'opacity-60' : ''}`
+
+              // Claimed personas link to their profile page; unclaimed are non-clickable
+              return isClaimed ? (
+                <Link
+                  key={persona.id}
+                  to={`/profile/${persona.claimed_by}`}
+                  className={`${rowClass} hover:border-slate-500`}
+                >
+                  {rowContent}
                 </Link>
+              ) : (
+                <div key={persona.id} className={rowClass}>
+                  {rowContent}
+                </div>
               )
             })}
           </div>

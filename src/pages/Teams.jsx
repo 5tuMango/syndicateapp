@@ -60,43 +60,49 @@ export default function Teams() {
     const [{ data: teamsData }, { data: profilesData }, { data: personasData }, { data: betsData }] = await Promise.all([
       supabase.from('teams').select('*').order('created_at'),
       supabase.from('profiles').select('id, full_name, username, team_id, is_admin'),
-      supabase.from('personas').select('id, claimed_by'),
+      // select('*') so we get team_id if the column exists, without error if not
+      supabase.from('personas').select('*').order('nickname'),
       supabase
         .from('bets')
         .select('id, user_id, persona_id, stake, odds, outcome, is_bonus_bet')
         .neq('outcome', 'pending'),
     ])
+
+    // Build profile→team fallback for claimed personas pre-migration
+    const profileTeamMap = {}
+    for (const p of (profilesData || [])) {
+      if (p.team_id) profileTeamMap[p.id] = p.team_id
+    }
+
+    // Augment personas with team_id from profile if not yet on persona row
+    const augmentedPersonas = (personasData || []).map((p) => ({
+      ...p,
+      team_id: p.team_id || (p.claimed_by ? (profileTeamMap[p.claimed_by] ?? null) : null),
+    }))
+
     setTeams(teamsData || [])
     setProfiles(profilesData || [])
-    setPersonas(personasData || [])
+    setPersonas(augmentedPersonas)
     setBets(betsData || [])
     setLoading(false)
   }
 
-  // Resolve the effective user_id for a bet:
-  // - if persona_id is set, use the persona's claimed_by user
-  // - otherwise use user_id directly
-  function betOwnerId(bet) {
-    if (bet.persona_id) {
-      const p = personas.find((p) => p.id === bet.persona_id)
-      return p?.claimed_by || null
-    }
-    return bet.user_id
+  // A bet belongs to a persona if persona_id matches, or user_id matches claimed_by
+  function betBelongsToPersona(bet, personaId) {
+    if (bet.persona_id) return bet.persona_id === personaId
+    const p = personas.find((p) => p.id === personaId)
+    return !!(p?.claimed_by && bet.user_id === p.claimed_by)
   }
 
-  // Build stats per team
+  // Build stats per team using persona-based membership
   function teamStats(teamId) {
-    const members = profiles.filter((p) => p.team_id === teamId)
-    const memberIds = new Set(members.map((p) => p.id))
-    const teamBets = bets.filter((b) => {
-      const ownerId = betOwnerId(b)
-      return ownerId && memberIds.has(ownerId)
-    })
+    const teamPersonas = personas.filter((p) => p.team_id === teamId)
+    const teamBets = bets.filter((b) => teamPersonas.some((p) => betBelongsToPersona(b, p.id)))
     const resulted = teamBets.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
     const won = resulted.filter((b) => b.outcome === 'won').length
     const totalPL = teamBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
     const winRate = resulted.length > 0 ? Math.round((won / resulted.length) * 100) : 0
-    return { members, betCount: teamBets.length, won, totalPL, winRate }
+    return { members: teamPersonas, betCount: teamBets.length, won, totalPL, winRate }
   }
 
   const teamsWithStats = teams.map((t) => ({ ...t, stats: teamStats(t.id) }))
@@ -105,7 +111,7 @@ export default function Teams() {
       ? teamsWithStats.reduce((a, b) => (a.stats.totalPL >= b.stats.totalPL ? a : b))
       : null
 
-  const unassigned = profiles.filter((p) => !p.team_id)
+  const unassigned = personas.filter((p) => !p.team_id)
 
   async function saveTeamName(teamId) {
     if (!editingTeamName.trim()) return
@@ -116,9 +122,20 @@ export default function Teams() {
     load()
   }
 
-  async function assignToTeam(profileId, teamId) {
+  async function assignPersonaToTeam(personaId, teamId) {
     setSaving(true)
-    await supabase.from('profiles').update({ team_id: teamId }).eq('id', profileId)
+    // Write to personas.team_id (requires DB migration to have run)
+    const { error } = await supabase.from('personas').update({ team_id: teamId }).eq('id', personaId)
+    if (error) {
+      alert('Could not save team: ' + error.message + '\n\nRun the SQL migration in Supabase Studio first:\nALTER TABLE personas ADD COLUMN IF NOT EXISTS team_id UUID REFERENCES teams(id);')
+      setSaving(false)
+      return
+    }
+    // Also sync to profiles.team_id for claimed personas (backward compat)
+    const persona = personas.find((p) => p.id === personaId)
+    if (persona?.claimed_by) {
+      await supabase.from('profiles').update({ team_id: teamId }).eq('id', persona.claimed_by)
+    }
     setSaving(false)
     setMovingMember(null)
     load()
@@ -267,28 +284,23 @@ export default function Teams() {
                 {members.length === 0 ? (
                   <p className="text-slate-500 text-sm italic">No members yet</p>
                 ) : (
-                  members.map((member) => {
-                    const name = member.full_name || member.username || 'Unknown'
+                  members.map((persona) => {
                     const otherTeam = teams.find((t) => t.id !== team.id)
                     return (
                       <div
-                        key={member.id}
+                        key={persona.id}
                         className="flex items-center justify-between gap-2"
                       >
                         <div className="flex items-center gap-2">
-                          <div
-                            className={`w-7 h-7 rounded-full ${colors.avatar} flex items-center justify-center text-xs font-bold ${colors.text} shrink-0`}
-                          >
-                            {initials(name)}
-                          </div>
-                          <span className="text-sm text-slate-200">{name}</span>
-                          {member.is_admin && (
-                            <span className="text-xs text-yellow-400">Admin</span>
+                          <span className="text-xl">{persona.emoji}</span>
+                          <span className="text-sm text-slate-200">{persona.nickname}</span>
+                          {!persona.claimed_by && (
+                            <span className="text-xs text-slate-500">(unclaimed)</span>
                           )}
                         </div>
                         {isAdmin && otherTeam && (
                           <button
-                            onClick={() => setMovingMember({ ...member, currentTeamId: team.id })}
+                            onClick={() => setMovingMember({ ...persona, currentTeamId: team.id })}
                             className="text-xs text-slate-500 hover:text-white transition-colors"
                           >
                             Move
@@ -308,37 +320,35 @@ export default function Teams() {
       {isAdmin && unassigned.length > 0 && (
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-5 space-y-3">
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
-            Unassigned Members
+            Unassigned Personas
           </h2>
           <div className="space-y-2">
-            {unassigned.map((member) => {
-              const name = member.full_name || member.username || 'Unknown'
-              return (
-                <div key={member.id} className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 shrink-0">
-                      {initials(name)}
-                    </div>
-                    <span className="text-sm text-slate-200">{name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {teams.map((t) => {
-                      const tc = TEAM_COLORS[t.color] || TEAM_COLORS.blue
-                      return (
-                        <button
-                          key={t.id}
-                          onClick={() => assignToTeam(member.id, t.id)}
-                          disabled={saving}
-                          className={`text-xs px-2 py-1 rounded border ${tc.border} ${tc.text} ${tc.bg} hover:opacity-80 transition-opacity disabled:opacity-50`}
-                        >
-                          {t.name}
-                        </button>
-                      )
-                    })}
-                  </div>
+            {unassigned.map((persona) => (
+              <div key={persona.id} className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{persona.emoji}</span>
+                  <span className="text-sm text-slate-200">{persona.nickname}</span>
+                  {!persona.claimed_by && (
+                    <span className="text-xs text-slate-500">(unclaimed)</span>
+                  )}
                 </div>
-              )
-            })}
+                <div className="flex items-center gap-2">
+                  {teams.map((t) => {
+                    const tc = TEAM_COLORS[t.color] || TEAM_COLORS.blue
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => assignPersonaToTeam(persona.id, t.id)}
+                        disabled={saving}
+                        className={`text-xs px-2 py-1 rounded border ${tc.border} ${tc.text} ${tc.bg} hover:opacity-80 transition-opacity disabled:opacity-50`}
+                      >
+                        {t.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -351,7 +361,7 @@ export default function Teams() {
             <p className="text-slate-400 text-sm">
               Move{' '}
               <span className="text-white font-medium">
-                {movingMember.full_name || movingMember.username}
+                {movingMember.emoji} {movingMember.nickname}
               </span>{' '}
               to:
             </p>
@@ -363,7 +373,7 @@ export default function Teams() {
                   return (
                     <button
                       key={t.id}
-                      onClick={() => assignToTeam(movingMember.id, t.id)}
+                      onClick={() => assignPersonaToTeam(movingMember.id, t.id)}
                       disabled={saving}
                       className={`w-full py-2.5 rounded-lg border ${tc.border} ${tc.text} ${tc.bg} hover:opacity-80 transition-opacity disabled:opacity-50 font-medium`}
                     >
