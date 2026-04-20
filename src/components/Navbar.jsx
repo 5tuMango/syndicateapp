@@ -88,8 +88,8 @@ export default function Navbar() {
     <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-10">
       <div className="max-w-5xl mx-auto px-4 flex items-center justify-between h-14">
         <div className="flex items-center gap-6">
-          <Link to="/" className="text-green-400 font-bold text-lg tracking-tight shrink-0">
-            The Syndicate
+          <Link to="/" className="shrink-0">
+            <img src="/syndic8-logo.png" alt="Syndic8" className="h-8 w-auto" />
           </Link>
           <div className="hidden sm:flex items-center gap-1">
             {navLinks.map(({ to, label }) => (
