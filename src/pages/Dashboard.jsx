@@ -51,6 +51,7 @@ export default function Dashboard() {
   const [filters, setFilters] = useState({})
   const [unattributedFunds, setUnattributedFunds] = useState(0)
   const [teams, setTeams] = useState([])
+  const [dashTab, setDashTab] = useState('active') // 'active' | 'archive'
 
   useEffect(() => {
     fetchData()
@@ -208,37 +209,55 @@ export default function Dashboard() {
     if (data) setWeeklyMultis(data)
   }
 
-  // Merge bets + weekly multis into a single feed sorted by activity
-  // Pending items with furthest event time sit at the top; resolved below
-  const feedItems = useMemo(() => {
-    // Treat weekly multis like bets for sorting: use created_at as fallback time
+  // Categorise bets + weekly multis into dashboard sections
+  const feedSections = useMemo(() => {
+    const tenDaysAgo = new Date()
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10)
+    const tenDaysAgoStr = tenDaysAgo.toISOString().slice(0, 10)
+
     const allItems = [
-      ...filteredBets.map(b => ({ type: 'bet', key: b.id, data: b, outcome: b.outcome, lastTime: betLastEventTime(b), date: b.date, created_at: b.created_at })),
+      ...filteredBets.map(b => {
+        const legs = b.bet_legs || []
+        const hasLostLeg = legs.some(l => l.outcome === 'lost')
+        return { type: 'bet', key: b.id, data: b, outcome: b.outcome, lastTime: betLastEventTime(b), date: b.date, created_at: b.created_at, hasLostLeg }
+      }),
       ...weeklyMultis.map(m => {
         const legs = m.weekly_multi_legs || []
-        const outcome = legs.length === 0 ? 'pending' : legs.every(l => l.outcome === 'won' || l.outcome === 'void') && legs.some(l => l.outcome === 'won') ? 'won' : legs.some(l => l.outcome === 'lost') ? 'lost' : 'pending'
-        // Use earliest pending leg's event_time for sorting (mirrors betLastEventTime for regular bets)
+        const nonVoid = legs.filter(l => l.outcome !== 'void')
+        const outcome = nonVoid.length === 0 ? 'pending'
+          : nonVoid.every(l => l.outcome === 'won') ? 'won'
+          : nonVoid.some(l => l.outcome === 'lost') ? 'lost'
+          : 'pending'
+        const hasLostLeg = legs.some(l => l.outcome === 'lost')
         const pendingLegTimes = legs
           .filter(l => l.outcome === 'pending' && l.event_time)
           .map(l => new Date(l.event_time).getTime())
           .filter(t => !isNaN(t))
         const lastTime = pendingLegTimes.length > 0 ? Math.max(...pendingLegTimes) : null
-        return { type: 'weekly', key: m.id, data: m, outcome, lastTime, date: m.created_at?.slice(0, 10), created_at: m.created_at }
+        return { type: 'weekly', key: m.id, data: m, outcome, lastTime, date: m.created_at?.slice(0, 10), created_at: m.created_at, hasLostLeg }
       }),
     ]
-    return allItems.sort((a, b) => {
-      const aPending = a.outcome === 'pending'
-      const bPending = b.outcome === 'pending'
-      if (aPending && !bPending) return -1
-      if (!aPending && bPending) return 1
-      if (aPending) {
-        if (a.lastTime && b.lastTime) return b.lastTime - a.lastTime
-        if (a.lastTime) return -1
-        if (b.lastTime) return 1
-        return b.created_at.localeCompare(a.created_at)
-      }
-      return (b.date || '').localeCompare(a.date || '') || b.created_at.localeCompare(a.created_at)
-    })
+
+    const byDate = (a, b) => (b.date || '').localeCompare(a.date || '') || b.created_at.localeCompare(a.created_at)
+    const byEventTime = (a, b) => {
+      if (a.lastTime && b.lastTime) return a.lastTime - b.lastTime
+      if (a.lastTime) return -1
+      if (b.lastTime) return 1
+      return b.created_at.localeCompare(a.created_at)
+    }
+
+    // Section 1: pending, no lost legs — still alive, sorted by soonest event first
+    const alivePending = allItems.filter(i => i.outcome === 'pending' && !i.hasLostLeg).sort(byEventTime)
+    // Section 2: pending, has a lost leg — effectively dead but legs still pending
+    const deadPending = allItems.filter(i => i.outcome === 'pending' && i.hasLostLeg).sort(byDate)
+    // Section 3: lost within 10 days
+    const recentLoss = allItems.filter(i => i.outcome === 'lost' && (i.date || '') >= tenDaysAgoStr).sort(byDate)
+    // Section 4: wins — held all year
+    const wins = allItems.filter(i => i.outcome === 'won').sort(byDate)
+    // Archive: lost 10+ days ago
+    const archive = allItems.filter(i => i.outcome === 'lost' && (i.date || '') < tenDaysAgoStr).sort(byDate)
+
+    return { alivePending, deadPending, recentLoss, wins, archive }
   }, [filteredBets, weeklyMultis])
 
   return (
@@ -420,24 +439,98 @@ export default function Dashboard() {
 
       <FilterBar filters={filters} onChange={setFilters} members={members} />
 
+      {/* Active / Archive tab toggle */}
+      <div className="flex gap-2">
+        {[
+          { key: 'active', label: 'Active', count: feedSections.alivePending.length + feedSections.deadPending.length + feedSections.recentLoss.length + feedSections.wins.length },
+          { key: 'archive', label: 'Archive', count: feedSections.archive.length },
+        ].map(({ key, label, count }) => (
+          <button
+            key={key}
+            onClick={() => setDashTab(key)}
+            className={`px-4 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+              dashTab === key
+                ? 'bg-slate-700 border-slate-500 text-white'
+                : 'border-slate-700 text-slate-400 hover:text-white hover:border-slate-500'
+            }`}
+          >
+            {label} {count > 0 && <span className="text-xs opacity-60">({count})</span>}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="text-center text-slate-400 py-16">Loading bets...</div>
-      ) : feedItems.length === 0 ? (
-        <div className="text-center text-slate-400 py-16">
-          {Object.values(filters).some(Boolean)
-            ? 'No bets match the current filters.'
-            : 'No bets yet. Be the first to add one!'}
-        </div>
+      ) : dashTab === 'archive' ? (
+        /* ── Archive tab ── */
+        feedSections.archive.length === 0 ? (
+          <div className="text-center text-slate-400 py-16">No archived bets yet.</div>
+        ) : (
+          <div className="space-y-3">
+            {feedSections.archive.map(item =>
+              item.type === 'bet'
+                ? <BetCard key={item.key} bet={item.data} onDelete={handleDelete} onUpdate={handleUpdate} />
+                : <WeeklyMultiCard key={item.key} multi={item.data} onUpdate={handleWeeklyUpdate} />
+            )}
+          </div>
+        )
       ) : (
-        <div className="space-y-3">
-          {feedItems.map((item) =>
-            item.type === 'bet' ? (
-              <BetCard key={item.key} bet={item.data} onDelete={handleDelete} onUpdate={handleUpdate} />
-            ) : (
-              <WeeklyMultiCard key={item.key} multi={item.data} onUpdate={handleWeeklyUpdate} />
-            )
-          )}
-        </div>
+        /* ── Active tab ── */
+        feedSections.alivePending.length + feedSections.deadPending.length + feedSections.recentLoss.length + feedSections.wins.length === 0 ? (
+          <div className="text-center text-slate-400 py-16">
+            {Object.values(filters).some(Boolean) ? 'No bets match the current filters.' : 'No bets yet. Be the first to add one!'}
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {/* Section 1: Still alive pending */}
+            {feedSections.alivePending.length > 0 && (
+              <div className="space-y-3">
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">🟡 Pending</h2>
+                {feedSections.alivePending.map(item =>
+                  item.type === 'bet'
+                    ? <BetCard key={item.key} bet={item.data} onDelete={handleDelete} onUpdate={handleUpdate} />
+                    : <WeeklyMultiCard key={item.key} multi={item.data} onUpdate={handleWeeklyUpdate} />
+                )}
+              </div>
+            )}
+
+            {/* Section 2: Pending but already lost by a leg */}
+            {feedSections.deadPending.length > 0 && (
+              <div className="space-y-3">
+                <h2 className="text-xs font-semibold text-red-400/70 uppercase tracking-wide">💀 Lost — Legs Still Pending</h2>
+                {feedSections.deadPending.map(item =>
+                  item.type === 'bet'
+                    ? <BetCard key={item.key} bet={item.data} onDelete={handleDelete} onUpdate={handleUpdate} />
+                    : <WeeklyMultiCard key={item.key} multi={item.data} onUpdate={handleWeeklyUpdate} />
+                )}
+              </div>
+            )}
+
+            {/* Section 3: Recent losses (within 10 days) */}
+            {feedSections.recentLoss.length > 0 && (
+              <div className="space-y-3">
+                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">❌ Recent Losses</h2>
+                {feedSections.recentLoss.map(item =>
+                  item.type === 'bet'
+                    ? <BetCard key={item.key} bet={item.data} onDelete={handleDelete} onUpdate={handleUpdate} />
+                    : <WeeklyMultiCard key={item.key} multi={item.data} onUpdate={handleWeeklyUpdate} />
+                )}
+              </div>
+            )}
+
+            {/* Section 4: Wins — held all year */}
+            {feedSections.wins.length > 0 && (
+              <div className="space-y-3">
+                <h2 className="text-xs font-semibold text-green-400/70 uppercase tracking-wide">✅ Winning Bets</h2>
+                {feedSections.wins.map(item =>
+                  item.type === 'bet'
+                    ? <BetCard key={item.key} bet={item.data} onDelete={handleDelete} onUpdate={handleUpdate} />
+                    : <WeeklyMultiCard key={item.key} multi={item.data} onUpdate={handleWeeklyUpdate} />
+                )}
+              </div>
+            )}
+          </div>
+        )
       )}
     </div>
   )
