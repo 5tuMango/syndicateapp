@@ -37,18 +37,21 @@ export default async function handler(req, res) {
   const nextWeek = maxWeek + 1
 
   // ── 2. Calculate upcoming weekend dates ────────────────────────────────────
-  // Cron runs Monday AEST. We want the Friday–Sunday of that same week.
+  // Cron runs Monday AEST (= Sunday evening UTC), so we CANNOT rely on
+  // getUTCDay() being Monday — it will often be Sunday. Instead, find the
+  // next upcoming Friday from the current AEST date, regardless of what
+  // UTC day it is.
   const now = new Date()
-  // Find the Monday of the current week (or today if it's Monday)
-  const dayOfWeek = now.getUTCDay() // 0=Sun, 1=Mon … 6=Sat
-  const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-  const monday = new Date(now)
-  monday.setUTCDate(now.getUTCDate() + daysToMonday)
+  const AEST_OFFSET_MS = 10 * 60 * 60 * 1000 // UTC+10
+  const aestNow = new Date(now.getTime() + AEST_OFFSET_MS)
+  const dayAEST = aestNow.getUTCDay() // 0=Sun, 1=Mon … 6=Sat in AEST
 
-  const friday = new Date(monday)
-  friday.setUTCDate(monday.getUTCDate() + 4)
-  const sunday = new Date(monday)
-  sunday.setUTCDate(monday.getUTCDate() + 6)
+  // Days until next Friday: if today is Friday skip to next Friday (|| 7)
+  const daysToFriday = ((5 - dayAEST + 7) % 7) || 7
+  const friday = new Date(aestNow)
+  friday.setUTCDate(aestNow.getUTCDate() + daysToFriday)
+  const sunday = new Date(friday)
+  sunday.setUTCDate(friday.getUTCDate() + 2)
 
   function fmt(d) {
     return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
