@@ -149,14 +149,14 @@ export default function Leaderboard() {
     }).length
 
     const upcomingWeekNum = completedWeeks + 1
-    // teams[0] bets odd weeks (1,3,5,7…), teams[1] bets even weeks (2,4,6…)
-    const thisWeekendTeam = teams[(upcomingWeekNum - 1) % 2]
-    const nextWeekendTeam = teams[upcomingWeekNum % 2]
+    // teams[1] bets odd weeks (1,3,5,7…), teams[0] bets even weeks (2,4,6…)
+    const thisWeekendTeam = teams[upcomingWeekNum % 2]
+    const nextWeekendTeam = teams[(upcomingWeekNum - 1) % 2]
 
     // Completed weekends per team so far
     const teamWeekends = [
-      Math.floor((completedWeeks + 1) / 2), // teams[0]: odd weeks
-      Math.floor(completedWeeks / 2),         // teams[1]: even weeks
+      Math.floor(completedWeeks / 2),         // teams[0]: even weeks
+      Math.floor((completedWeeks + 1) / 2),   // teams[1]: odd weeks
     ]
 
     // Per-member allocation

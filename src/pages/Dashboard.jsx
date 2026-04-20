@@ -50,13 +50,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({})
   const [unattributedFunds, setUnattributedFunds] = useState(0)
+  const [teams, setTeams] = useState([])
 
   useEffect(() => {
     fetchData()
   }, [])
 
   async function fetchData() {
-    const [betsRes, membersRes, weeklyRes, kittyRes] = await Promise.all([
+    const [betsRes, membersRes, weeklyRes, kittyRes, teamsRes] = await Promise.all([
       supabase
         .from('bets')
         .select('*, profiles(id, username, full_name), bet_legs(*)')
@@ -65,11 +66,13 @@ export default function Dashboard() {
       supabase.from('profiles').select('id, username, full_name').order('full_name'),
       supabase.from('weekly_multis').select('*, weekly_multi_legs(*, profiles(id, full_name, username))'),
       supabase.from('kitty_settings').select('unattributed_funds').eq('id', 1).maybeSingle(),
+      supabase.from('teams').select('*').order('created_at'),
     ])
     setBets(betsRes.data || [])
     setMembers(membersRes.data || [])
     setWeeklyMultis(weeklyRes.data || [])
     setUnattributedFunds(parseFloat(kittyRes.data?.unattributed_funds || 0))
+    setTeams(teamsRes.data || [])
     setLoading(false)
   }
 
@@ -103,6 +106,16 @@ export default function Dashboard() {
   }, [filteredBets])
 
   const weeklyStats = useMemo(() => calcWeeklyStats(weeklyMultis), [weeklyMultis])
+
+  const thisWeekendTeam = useMemo(() => {
+    if (teams.length < 2) return null
+    const completedWeeks = weeklyMultis.filter((m) => {
+      const nonVoid = (m.weekly_multi_legs || []).filter((l) => l.outcome !== 'void')
+      return nonVoid.length > 0 && nonVoid.every((l) => l.outcome === 'won' || l.outcome === 'lost')
+    }).length
+    const upcomingWeekNum = completedWeeks + 1
+    return { team: teams[upcomingWeekNum % 2], weekNum: upcomingWeekNum }
+  }, [teams, weeklyMultis])
 
   // Confirmed earned bet returns (terms evaluated to true)
   const availableBetReturns = useMemo(() => {
@@ -230,6 +243,15 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5">
+      {thisWeekendTeam && (
+        <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-2.5">
+          <span className="text-green-400 text-sm">🏉</span>
+          <span className="text-slate-400 text-sm">Team betting this week:</span>
+          <span className="text-green-400 font-semibold text-sm">{thisWeekendTeam.team?.name}</span>
+          <span className="text-slate-600 text-xs ml-auto">Week {thisWeekendTeam.weekNum}</span>
+        </div>
+      )}
+
       <div>
         <h1 className="text-2xl font-bold text-white">Dashboard</h1>
         <p className="text-slate-400 text-sm mt-0.5">All bets across the syndicate</p>
