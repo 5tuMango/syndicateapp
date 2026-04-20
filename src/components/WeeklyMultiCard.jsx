@@ -41,12 +41,25 @@ function CountdownBadge({ eventTime }) {
 
 function NextEventBar({ legs }) {
   const now = useNow()
-  const upcoming = legs
-    .filter(l => l.event_time && (l.outcome === 'pending' || !l.outcome))
+  const pendingLegs = legs.filter(l => l.outcome === 'pending' || !l.outcome)
+  const upcoming = pendingLegs
+    .filter(l => l.event_time)
     .map(l => ({ t: l.event_time, d: eventTimeToDate(l.event_time) }))
     .filter(l => l.d)
     .sort((a, b) => a.d - b.d)
-  if (!upcoming.length) return null
+
+  // No legs have event_time set — show how many legs are still pending
+  if (!upcoming.length) {
+    if (!pendingLegs.length) return null
+    return (
+      <div className="flex items-center gap-2 rounded-lg px-3 py-2 bg-slate-700/40 border border-slate-600/40">
+        <span className="text-slate-400 text-xs">Pending:</span>
+        <span className="text-slate-300 text-sm font-medium">{pendingLegs.length} leg{pendingLegs.length !== 1 ? 's' : ''} remaining</span>
+        <span className="text-slate-500 text-xs ml-auto">No times set</span>
+      </div>
+    )
+  }
+
   const { t, d } = upcoming[0]
   const diff = d - now
   if (diff < -10800000) return null
