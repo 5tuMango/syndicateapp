@@ -38,7 +38,7 @@ export default function Insights() {
           .select('*, bet_legs(*)')
           .order('date', { ascending: true })
           .order('created_at', { ascending: true }),
-        supabase.from('profiles').select('id, username, full_name').order('full_name'),
+        supabase.from('personas').select('id, nickname, emoji, claimed_by').order('nickname'),
         supabase
           .from('weekly_multis')
           .select('*, weekly_multi_legs(*)')
@@ -52,12 +52,14 @@ export default function Insights() {
     fetchData()
   }, [])
 
-  // Resolve the effective member ID for a bet — persona_id takes priority over user_id
+  // Resolve the effective persona ID for a bet.
+  // If the bet has a persona_id, use it directly.
+  // Otherwise look up which persona has claimed_by === bet.user_id.
+  // Returns persona.id (or null for bets with no persona linkage).
   const betMemberId = (bet) => {
-    if (bet.persona_id && byPersonaId[bet.persona_id]?.claimed_by) {
-      return byPersonaId[bet.persona_id].claimed_by
-    }
-    return bet.user_id
+    if (bet.persona_id) return bet.persona_id
+    const persona = byUserId[bet.user_id]
+    return persona ? persona.id : null
   }
 
   // ── Total winnings (payout from won bets + weekly multis) ────────────────
@@ -159,11 +161,11 @@ export default function Insights() {
       if (legs.length > 0) {
         return legs
           .filter((l) => l.outcome === 'won' || l.outcome === 'lost')
-          .map((l) => ({ sport: l.sport || b.sport, outcome: l.outcome, user_id: betMemberId(b) }))
+          .map((l) => ({ sport: l.sport || b.sport, outcome: l.outcome, memberId: betMemberId(b) }))
       }
       // Single bets with no legs — use the bet itself
       if (b.outcome === 'won' || b.outcome === 'lost') {
-        return [{ sport: b.sport, outcome: b.outcome, user_id: betMemberId(b) }]
+        return [{ sport: b.sport, outcome: b.outcome, memberId: betMemberId(b) }]
       }
       return []
     })
@@ -173,7 +175,7 @@ export default function Insights() {
     return {
       usedSports,
       byMember: members.map((m) => {
-        const myLegs = resolvedLegs.filter((l) => l.user_id === m.id)
+        const myLegs = resolvedLegs.filter((l) => l.memberId === m.id)
         const sportRows = usedSports.map((sport) => {
           const legs = myLegs.filter((l) => l.sport === sport)
           if (legs.length === 0) return { sport, w: 0, l: 0, rate: null }
@@ -265,11 +267,11 @@ export default function Insights() {
 
   // ── Leg type win rates ────────────────────────────────────────────────────
   const legTypeStats = useMemo(() => {
-    // Collect all resolved legs with their parent bet's user_id
+    // Collect all resolved legs with their parent bet's persona id
     const resolvedLegs = bets.flatMap((b) =>
       (b.bet_legs || [])
         .filter((l) => l.outcome === 'won' || l.outcome === 'lost')
-        .map((l) => ({ ...l, user_id: betMemberId(b) }))
+        .map((l) => ({ ...l, memberId: betMemberId(b) }))
     )
 
     // Get unique market types (normalised descriptions)
@@ -278,7 +280,7 @@ export default function Insights() {
     return {
       marketTypes,
       byMember: members.map((m) => {
-        const myLegs = resolvedLegs.filter((l) => l.user_id === m.id)
+        const myLegs = resolvedLegs.filter((l) => l.memberId === m.id)
         const rows = marketTypes.map((mt) => {
           const legs = myLegs.filter((l) => normalizeMarketType(l.description) === mt)
           if (legs.length === 0) return { mt, w: 0, l: 0, rate: null }
@@ -312,8 +314,8 @@ export default function Insights() {
       const weekResults = slots.map(({ multi }) => {
         if (!multi) return null
         const leg = (multi.weekly_multi_legs || []).find((l) =>
-          l.assigned_user_id === m.id ||
-          (l.persona_id && byPersonaId[l.persona_id]?.claimed_by === m.id)
+          l.persona_id === m.id ||
+          (!l.persona_id && l.assigned_user_id && l.assigned_user_id === m.claimed_by)
         )
         if (!leg) return null
         return { outcome: leg.outcome, odds: leg.odds ? parseFloat(leg.odds) : null }
@@ -339,10 +341,8 @@ export default function Insights() {
 
   const noData = bets.length === 0
 
-  const displayName = (m) => {
-    const p = personaMap[m.id]
-    return p ? `${p.emoji} ${p.nickname}` : (m.full_name || m.username)
-  }
+  // members are now personas — they already have emoji + nickname
+  const displayName = (m) => `${m.emoji} ${m.nickname}`
 
   return (
     <div className="space-y-5">
