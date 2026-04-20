@@ -11,8 +11,7 @@ const SORT_OPTIONS = [
   { key: 'winnings', label: 'Winnings', format: (m) => `$${m.winnings.toFixed(2)}`, color: () => 'text-white' },
   { key: 'pl', label: 'P&L', format: (m) => formatCurrency(m.pl), color: (m) => profitLossColor(m.pl) },
   { key: 'winRate', label: 'Win Rate', format: (m) => `${m.winRate}%`, color: () => 'text-white' },
-  { key: 'betBoldness', label: 'Boldness', format: (m) => m.betBoldness > 0 ? m.betBoldness.toFixed(0) : '—', color: () => 'text-orange-400' },
-  { key: 'riskProfile', label: 'Risk Profile', format: (m) => m.riskProfile > 0 ? m.riskProfile.toFixed(2) : '—', color: () => 'text-purple-400' },
+  { key: 'avgOdds', label: 'Avg Odds', format: (m) => m.avgOdds > 0 ? m.avgOdds.toFixed(2) : '—', color: () => 'text-purple-400' },
   { key: 'total', label: 'Bets', format: (m) => m.total, color: () => 'text-white' },
 ]
 
@@ -37,10 +36,8 @@ function calcWeeklyStats(multis) {
   const pl = results.reduce((sum, r) => sum + r.pl, 0)
   const staked = results.reduce((sum, r) => sum + r.stake, 0)
   const sumStakeOdds = results.reduce((sum, r) => sum + r.stake * r.combo, 0)
-  const withStake = results.filter((r) => r.stake > 0)
-  const boldness = withStake.length > 0 ? sumStakeOdds / withStake.length : 0
-  const riskProfile = staked > 0 ? sumStakeOdds / staked : 0
-  return { total: multis.length, won, winnings, pl, staked, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, boldness, riskProfile }
+  const avgOdds = staked > 0 ? sumStakeOdds / staked : 0
+  return { total: multis.length, won, winnings, pl, staked, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, avgOdds }
 }
 
 export default function Leaderboard() {
@@ -102,13 +99,12 @@ export default function Leaderboard() {
     const winnings = memberBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + calcWinnings(b), 0)
     const nonVoid = memberBets.filter((b) => b.outcome !== 'void')
     const sumStakeOdds = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
-    const betBoldness = nonVoid.length > 0 ? sumStakeOdds / nonVoid.length : 0
-    const riskProfile = staked > 0 ? sumStakeOdds / staked : 0
+    const avgOdds = staked > 0 ? sumStakeOdds / staked : 0
     const betReturnsEarned = memberBets.filter((b) => b.outcome === 'lost' && b.bet_return_value > 0)
       .reduce((sum, b) => sum + parseFloat(b.bet_return_value), 0)
     const bonusBetsUsed = memberBets.filter((b) => b.is_bonus_bet)
       .reduce((sum, b) => sum + parseFloat(b.stake), 0)
-    return { total: countable.length, won, lost, pending, voided, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, pl, staked, winnings, betBoldness, riskProfile, betReturnsEarned, bonusBetsUsed }
+    return { total: countable.length, won, lost, pending, voided, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, pl, staked, winnings, avgOdds, betReturnsEarned, bonusBetsUsed }
   }
 
   // A bet belongs to a persona if persona_id matches directly,
@@ -141,9 +137,8 @@ export default function Leaderboard() {
     const won = bets.filter((b) => b.outcome === 'won').length
     const winnings = bets.reduce((sum, b) => sum + calcWinnings(b), 0)
     const sumStakeOdds = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
-    const boldness = nonVoid.length > 0 ? sumStakeOdds / nonVoid.length : 0
-    const riskProfile = staked > 0 ? sumStakeOdds / staked : 0
-    return { pl, staked, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, total: bets.length, winnings, boldness, riskProfile }
+    const avgOdds = staked > 0 ? sumStakeOdds / staked : 0
+    return { pl, staked, winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0, total: bets.length, winnings, avgOdds }
   }, [bets])
 
   const weeklyStats = useMemo(() => calcWeeklyStats(weeklyMultis), [weeklyMultis])
@@ -191,13 +186,10 @@ export default function Leaderboard() {
     const totalWon = bets.filter((b) => b.outcome === 'won').length + weeklyStats.won
     const winRate = totalResolved ? Math.round((totalWon / totalResolved) * 100) : 0
     const total = individStats.total + weeklyStats.total
-    const riskProfile = staked > 0
-      ? (individStats.riskProfile * individStats.staked + weeklyStats.riskProfile * weeklyStats.staked) / staked
+    const avgOdds = staked > 0
+      ? (individStats.avgOdds * individStats.staked + weeklyStats.avgOdds * weeklyStats.staked) / staked
       : 0
-    const boldness = (individStats.total > 0 && weeklyStats.total > 0)
-      ? (individStats.boldness + weeklyStats.boldness) / 2
-      : individStats.boldness || weeklyStats.boldness
-    return { winnings, staked, pl, winRate, total, boldness, riskProfile }
+    return { winnings, staked, pl, winRate, total, avgOdds }
   }, [individStats, weeklyStats, bets, weeklyMultis])
 
   const activeSortOpt = SORT_OPTIONS.find((o) => o.key === sortKey)
@@ -223,8 +215,7 @@ export default function Leaderboard() {
             { label: 'Win Rate', value: `${groupStats.winRate}%`, color: 'text-white' },
             { label: 'Staked', value: `$${groupStats.staked.toFixed(2)}`, color: 'text-white' },
             { label: 'P&L', value: formatCurrency(groupStats.pl), color: profitLossColor(groupStats.pl) },
-            { label: 'Boldness', value: groupStats.boldness > 0 ? groupStats.boldness.toFixed(0) : '—', color: 'text-orange-400' },
-            { label: 'Risk Profile', value: groupStats.riskProfile > 0 ? groupStats.riskProfile.toFixed(2) : '—', color: 'text-purple-400' },
+            { label: 'Avg Odds', value: groupStats.avgOdds > 0 ? groupStats.avgOdds.toFixed(2) : '—', color: 'text-purple-400' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-slate-800 rounded-lg border border-slate-700 p-4 shrink-0 min-w-[110px]">
               <p className="text-slate-400 text-xs uppercase tracking-wide">{label}</p>
@@ -245,8 +236,7 @@ export default function Leaderboard() {
               <span className="text-slate-400">{s.winRate}% win</span>
               <span className={profitLossColor(s.pl)}>{formatCurrency(s.pl)} P&L</span>
               <span className="text-slate-600">·</span>
-              <span className="text-orange-400">Boldness {s.boldness > 0 ? s.boldness.toFixed(0) : '—'}</span>
-              <span className="text-purple-400">Risk {s.riskProfile > 0 ? s.riskProfile.toFixed(2) : '—'}</span>
+              <span className="text-purple-400">Avg Odds {s.avgOdds > 0 ? s.avgOdds.toFixed(2) : '—'}</span>
             </div>
           ))}
         </div>

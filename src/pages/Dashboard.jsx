@@ -27,9 +27,7 @@ function calcWeeklyStats(multis) {
   const pl = results.reduce((sum, r) => sum + r.pl, 0)
   const staked = results.reduce((sum, r) => sum + r.stake, 0)
   const sumStakeOdds = results.reduce((sum, r) => sum + r.stake * r.combo, 0)
-  const withStake = results.filter((r) => r.stake > 0)
-  const boldness = withStake.length > 0 ? sumStakeOdds / withStake.length : 0
-  const riskProfile = staked > 0 ? sumStakeOdds / staked : 0
+  const avgOdds = staked > 0 ? sumStakeOdds / staked : 0
   return {
     total: multis.length,
     won,
@@ -37,8 +35,7 @@ function calcWeeklyStats(multis) {
     pl,
     staked,
     winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0,
-    boldness,
-    riskProfile,
+    avgOdds,
   }
 }
 
@@ -97,12 +94,11 @@ export default function Dashboard() {
     const winnings = filteredBets.filter((b) => b.outcome === 'won').reduce((sum, b) => sum + calcWinnings(b), 0)
     const nonVoid = filteredBets.filter((b) => b.outcome !== 'void')
     const sumStakeOdds = nonVoid.reduce((sum, b) => sum + parseFloat(b.stake) * parseFloat(b.odds), 0)
-    const boldness = nonVoid.length > 0 ? sumStakeOdds / nonVoid.length : 0
-    const riskProfile = staked > 0 ? sumStakeOdds / staked : 0
+    const avgOdds = staked > 0 ? sumStakeOdds / staked : 0
     return {
       total: filteredBets.length,
       winRate: resolved.length ? Math.round((won / resolved.length) * 100) : 0,
-      pl, staked, winnings, boldness, riskProfile,
+      pl, staked, winnings, avgOdds,
     }
   }, [filteredBets])
 
@@ -164,9 +160,8 @@ export default function Dashboard() {
       const totalWon = filteredBets.filter((b) => b.outcome === 'won').length + weeklyStats.won
       return totalResolved ? Math.round((totalWon / totalResolved) * 100) : 0
     })(),
-    boldness: (individStats.boldness + weeklyStats.boldness) / (individStats.total > 0 && weeklyStats.total > 0 ? 2 : 1),
-    riskProfile: (individStats.staked + weeklyStats.staked) > 0
-      ? (individStats.riskProfile * individStats.staked + weeklyStats.riskProfile * weeklyStats.staked) / (individStats.staked + weeklyStats.staked)
+    avgOdds: (individStats.staked + weeklyStats.staked) > 0
+      ? (individStats.avgOdds * individStats.staked + weeklyStats.avgOdds * weeklyStats.staked) / (individStats.staked + weeklyStats.staked)
       : 0,
   }), [individStats, weeklyStats, filteredBets, weeklyMultis])
 
@@ -347,8 +342,7 @@ export default function Dashboard() {
             { label: 'Win Rate', value: `${combined.winRate}%`, color: 'text-white' },
             { label: 'Staked', value: `$${combined.staked.toFixed(2)}`, color: 'text-white' },
             { label: 'P&L', value: formatCurrency(combined.pl), color: profitLossColor(combined.pl) },
-            { label: 'Boldness', value: combined.boldness > 0 ? combined.boldness.toFixed(0) : '—', color: 'text-orange-400' },
-            { label: 'Risk Profile', value: combined.riskProfile > 0 ? combined.riskProfile.toFixed(2) : '—', color: 'text-purple-400' },
+            { label: 'Avg Odds', value: combined.avgOdds > 0 ? combined.avgOdds.toFixed(2) : '—', color: 'text-purple-400' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-slate-800 rounded-lg border border-slate-700 p-4 shrink-0 min-w-[110px]">
               <p className="text-slate-400 text-xs uppercase tracking-wide">{label}</p>
@@ -370,8 +364,7 @@ export default function Dashboard() {
               <span className="text-slate-400">{s.winRate}% win</span>
               <span className={profitLossColor(s.pl)}>{formatCurrency(s.pl)} P&L</span>
               <span className="text-slate-600">·</span>
-              <span className="text-orange-400">Boldness {s.boldness > 0 ? s.boldness.toFixed(0) : '—'}</span>
-              <span className="text-purple-400">Risk {s.riskProfile > 0 ? s.riskProfile.toFixed(2) : '—'}</span>
+              <span className="text-purple-400">Avg Odds {s.avgOdds > 0 ? s.avgOdds.toFixed(2) : '—'}</span>
             </div>
           ))}
         </div>

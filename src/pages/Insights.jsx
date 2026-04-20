@@ -233,10 +233,8 @@ export default function Insights() {
       const avgStake = mb.reduce((s, b) => s + parseFloat(b.stake), 0) / mb.length
       const totalStaked = mb.reduce((s, b) => s + parseFloat(b.stake), 0)
       const sumStakeOdds = mb.reduce((s, b) => s + parseFloat(b.stake) * parseFloat(b.odds), 0)
-      // Bet Boldness: avg(stake × odds) per bet — rewards big stakes + long odds
-      const betBoldness = mb.length > 0 ? sumStakeOdds / mb.length : 0
-      // Risk Profile: stake-weighted avg odds — pure measure of selection risk
-      const riskProfile = totalStaked > 0 ? sumStakeOdds / totalStaked : 0
+      // Avg Odds (stake-weighted): stake-weighted average odds — pure measure of selection risk
+      const avgOddsWtd = totalStaked > 0 ? sumStakeOdds / totalStaked : 0
       const pctMulti = Math.round((mb.filter((b) => b.bet_type === 'multi').length / mb.length) * 100)
       const resolved = mb.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
       const winRate = resolved.length ? Math.round((resolved.filter((b) => b.outcome === 'won').length / resolved.length) * 100) : null
@@ -261,7 +259,7 @@ export default function Insights() {
         return { label, avgStake: avg, count: group.length }
       }).filter((r) => r.count > 0)
 
-      return { member: m, avgOdds, avgStake, pctMulti, winRate, bestWin, stakeByOdds, betBoldness, riskProfile, empty: false }
+      return { member: m, avgOdds, avgOddsWtd, avgStake, pctMulti, winRate, bestWin, stakeByOdds, empty: false }
     })
   }, [bets, members, byPersonaId, personaMap])
 
@@ -590,9 +588,8 @@ export default function Insights() {
                   ) : (
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <Stat label="Boldness" value={row.betBoldness > 0 ? row.betBoldness.toFixed(0) : '—'} color="text-orange-400" />
-                        <Stat label="Risk Profile" value={row.riskProfile > 0 ? row.riskProfile.toFixed(2) : '—'} color="text-purple-400" />
                         <Stat label="Avg Odds" value={row.avgOdds.toFixed(2)} />
+                        <Stat label="Avg Odds (wtd)" value={row.avgOddsWtd > 0 ? row.avgOddsWtd.toFixed(2) : '—'} color="text-purple-400" />
                         <Stat label="Avg Stake" value={`$${row.avgStake.toFixed(2)}`} />
                         <Stat label="% Multis" value={`${row.pctMulti}%`} />
                         <Stat
