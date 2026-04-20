@@ -78,21 +78,32 @@ export default function Insights() {
   const pnlChartData = useMemo(() => {
     const resolved = bets.filter((b) => b.outcome !== 'pending')
 
-    // Compute resolved weekly multi winnings keyed by date
+    // Compute resolved weekly multi winnings and P&L keyed by date
     const weeklyWinByDate = {}
+    const weeklyPLByDate = {}
     for (const m of weeklyMultis) {
       const legs = m.weekly_multi_legs || []
       const nonVoid = legs.filter(l => l.outcome !== 'void')
-      if (nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending') || nonVoid.some(l => l.outcome === 'lost')) continue
-      const validLegs = legs.filter(l => l.odds != null && parseFloat(l.odds) > 0)
-      const combo = validLegs.reduce((acc, l) => acc * parseFloat(l.odds), 1)
+      if (nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending')) continue
+      const stake = parseFloat(m.stake || 0)
       const date = (m.created_at || '').slice(0, 10)
-      weeklyWinByDate[date] = (weeklyWinByDate[date] || 0) + parseFloat(m.stake || 0) * combo
+      if (nonVoid.some(l => l.outcome === 'lost')) {
+        // Lost week: P&L = -stake
+        weeklyPLByDate[date] = (weeklyPLByDate[date] || 0) - stake
+      } else {
+        // Won week: winnings = stake * combo, P&L = winnings - stake
+        const validLegs = legs.filter(l => l.odds != null && parseFloat(l.odds) > 0)
+        const combo = validLegs.reduce((acc, l) => acc * parseFloat(l.odds), 1)
+        const winnings = stake * combo
+        weeklyWinByDate[date] = (weeklyWinByDate[date] || 0) + winnings
+        weeklyPLByDate[date] = (weeklyPLByDate[date] || 0) + (winnings - stake)
+      }
     }
 
     const allDates = [...new Set([
       ...resolved.map(b => b.date),
       ...Object.keys(weeklyWinByDate),
+      ...Object.keys(weeklyPLByDate),
     ])].sort()
 
     let runningPL = 0
@@ -103,6 +114,7 @@ export default function Insights() {
         runningWinnings += calcWinnings(b)
       })
       runningWinnings += weeklyWinByDate[date] || 0
+      runningPL += weeklyPLByDate[date] || 0
       return {
         date: formatChartDate(date),
         __winnings: parseFloat(runningWinnings.toFixed(2)),
