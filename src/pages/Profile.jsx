@@ -24,6 +24,7 @@ export default function Profile() {
   const [kittyBalance, setKittyBalance] = useState(null) // full group balance
   const [numPunters, setNumPunters] = useState(8)
   const [stillOwedTotal, setStillOwedTotal] = useState(0)
+  const [penaltiesOwed, setPenaltiesOwed] = useState(0) // auto-detected from weekly multis
 
   const isOwn = user?.id === id
   const isAdmin = authProfile?.is_admin
@@ -69,7 +70,7 @@ export default function Profile() {
     const [allPersonasRes, allBetsRes, weeklyRes, kittySettingsRes] = await Promise.all([
       supabase.from('personas').select('amount_paid, penalties_paid, contribution_target'),
       supabase.from('bets').select('stake, odds, outcome, is_bonus_bet, intend_to_rollover, is_rollover'),
-      supabase.from('weekly_multis').select('stake, weekly_multi_legs(outcome, odds)'),
+      supabase.from('weekly_multis').select('stake, weekly_multi_legs(outcome, odds, event_time, sort_order, persona_id, assigned_user_id)'),
       supabase.from('kitty_settings').select('unattributed_funds').eq('id', 1).maybeSingle(),
     ])
     const allPersonas = allPersonasRes.data || []
@@ -104,6 +105,37 @@ export default function Profile() {
     setKittyBalance(balance)
     setStillOwedTotal(owedByAll)
     setNumPunters(allPersonas.length || 8)
+
+    // Auto-detect penalties: $80 when this persona's leg is the first in the weekly multi
+    // (earliest event_time or lowest sort_order) AND it lost AND the event was on Thu or Fri (AEST)
+    const PENALTY_AMOUNT = 80
+    const personaId = p?.id || null
+    let penaltyCount = 0
+    for (const multi of weeklyMultis) {
+      const legs = multi.weekly_multi_legs || []
+      if (legs.length === 0) continue
+      // Find the first leg: prefer earliest event_time, fall back to lowest sort_order
+      const withTime = legs.filter(l => l.event_time)
+      let firstLeg
+      if (withTime.length > 0) {
+        firstLeg = [...withTime].sort((a, b) => new Date(a.event_time) - new Date(b.event_time))[0]
+      } else {
+        firstLeg = [...legs].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0]
+      }
+      if (!firstLeg || firstLeg.outcome !== 'lost') continue
+      // Check day of week in AEST — Thursday=4, Friday=5
+      if (firstLeg.event_time) {
+        const aestStr = new Date(firstLeg.event_time).toLocaleString('en-AU', { timeZone: 'Australia/Sydney', weekday: 'long' })
+        const isThurOrFri = aestStr.startsWith('Thursday') || aestStr.startsWith('Friday')
+        if (!isThurOrFri) continue
+      }
+      // Check if this leg belongs to the profile being viewed
+      const belongsToUs = (personaId && firstLeg.persona_id === personaId) ||
+                          (!personaId && firstLeg.assigned_user_id === id)
+      if (!belongsToUs) continue
+      penaltyCount++
+    }
+    setPenaltiesOwed(penaltyCount * PENALTY_AMOUNT)
     setLoading(false)
   }
 
@@ -348,6 +380,36 @@ export default function Profile() {
                       <div className="bg-slate-900/50 rounded-lg px-4 py-2 text-sm text-slate-400">
                         Total paid into kitty: <span className="text-white font-semibold">${totalPaidIn.toFixed(0)}</span>
                         {penaltiesPaid > 0 && <span className="text-slate-500 text-xs"> (${amountPaid.toFixed(0)} contribution + ${penaltiesPaid.toFixed(0)} extras)</span>}
+                      </div>
+                    )}
+
+                    {/* Auto-detected penalties section */}
+                    {penaltiesOwed > 0 && (
+                      <div className={`rounded-lg border px-4 py-3 space-y-2 ${penaltiesOwed > penaltiesPaid ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-800 border-slate-700'}`}>
+                        <p className="text-xs font-semibold text-slate-300 uppercase tracking-wide">⚠ Weekly Multi Penalties</p>
+                        <p className="text-xs text-slate-400">First leg lost on a Thursday or Friday — $80 penalty per occurrence</p>
+                        <div className="grid grid-cols-3 gap-3 pt-1">
+                          <div>
+                            <p className="text-xs text-slate-500 mb-0.5">Incurred</p>
+                            <p className="text-lg font-bold text-red-400">${penaltiesOwed.toFixed(0)}</p>
+                            <p className="text-xs text-slate-600">{penaltiesOwed / 80} × $80</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-500 mb-0.5">Paid</p>
+                            <p className={`text-lg font-bold ${penaltiesPaid >= penaltiesOwed ? 'text-emerald-400' : 'text-purple-400'}`}>${penaltiesPaid.toFixed(0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-500 mb-0.5">Outstanding</p>
+                            {(() => {
+                              const outstanding = Math.max(0, penaltiesOwed - penaltiesPaid)
+                              return (
+                                <p className={`text-lg font-bold ${outstanding > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                  {outstanding > 0 ? `$${outstanding.toFixed(0)}` : '✓ Clear'}
+                                </p>
+                              )
+                            })()}
+                          </div>
+                        </div>
                       </div>
                     )}
 
