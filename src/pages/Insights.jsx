@@ -54,11 +54,11 @@ export default function Insights() {
 
   // Resolve the effective persona ID for a bet.
   // If the bet has a persona_id, use it directly.
-  // Otherwise look up which persona has claimed_by === bet.user_id.
+  // Otherwise look up which persona has claimed_by === bet.user_id (personaMap = byUserId).
   // Returns persona.id (or null for bets with no persona linkage).
   const betMemberId = (bet) => {
     if (bet.persona_id) return bet.persona_id
-    const persona = byUserId[bet.user_id]
+    const persona = personaMap[bet.user_id]
     return persona ? persona.id : null
   }
 
@@ -123,7 +123,7 @@ export default function Insights() {
         __pl: parseFloat(runningPL.toFixed(2)),
       }
     })
-  }, [bets, weeklyMultis, members, byPersonaId])
+  }, [bets, weeklyMultis, members, byPersonaId, personaMap])
 
   // ── Strike rate table (7d / 30d / all-time) ───────────────────────────────
   const strikeRates = useMemo(() => {
@@ -151,7 +151,7 @@ export default function Insights() {
         : null
       return { ...m, ...rates, daysSinceWin }
     })
-  }, [bets, members, byPersonaId])
+  }, [bets, members, byPersonaId, personaMap])
 
   // ── Win rate by sport — based on individual legs (includes multi legs) ──────
   const bySport = useMemo(() => {
@@ -185,7 +185,7 @@ export default function Insights() {
         return { member: m, sportRows }
       }),
     }
-  }, [bets, members, byPersonaId])
+  }, [bets, members, byPersonaId, personaMap])
 
   // ── Multi bet stats ───────────────────────────────────────────────────────
   const multiStats = useMemo(() => {
@@ -222,7 +222,7 @@ export default function Insights() {
         pl: multis.reduce((s, b) => s + calcProfitLoss(b), 0),
       }
     })
-  }, [bets, members, byPersonaId])
+  }, [bets, members, byPersonaId, personaMap])
 
   // ── Risk profile ─────────────────────────────────────────────────────────
   const riskProfiles = useMemo(() => {
@@ -263,7 +263,7 @@ export default function Insights() {
 
       return { member: m, avgOdds, avgStake, pctMulti, winRate, bestWin, stakeByOdds, betBoldness, riskProfile, empty: false }
     })
-  }, [bets, members, byPersonaId])
+  }, [bets, members, byPersonaId, personaMap])
 
   // ── Leg type win rates ────────────────────────────────────────────────────
   const legTypeStats = useMemo(() => {
@@ -290,7 +290,7 @@ export default function Insights() {
         return { member: m, rows }
       }),
     }
-  }, [bets, members, byPersonaId])
+  }, [bets, members, byPersonaId, personaMap])
 
   // ── Weekly multi insights ─────────────────────────────────────────────────
   const TOTAL_WEEKS = 33
