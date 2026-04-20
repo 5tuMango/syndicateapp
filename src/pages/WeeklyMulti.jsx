@@ -137,10 +137,10 @@ export default function WeeklyMulti() {
     for (const multi of resulted) {
       const legs = multi.weekly_multi_legs || []
       for (const leg of legs) {
-        const key = leg.assigned_user_id || leg.assigned_name || 'Unknown'
-        const name = leg.assigned_user_id
-          ? profileName(leg.assigned_user_id)
-          : leg.assigned_name || 'Unknown'
+        // Key by persona_id first (handles unclaimed + claimed personas uniformly),
+        // then fall back to assigned_user_id or assigned_name for legacy legs
+        const key = leg.persona_id || leg.assigned_user_id || leg.assigned_name || 'Unknown'
+        const name = legPersonaName(leg)
         if (!stats[key]) stats[key] = { name, won: 0, lost: 0, void: 0 }
         if (leg.outcome === 'won') stats[key].won++
         else if (leg.outcome === 'lost') stats[key].lost++
