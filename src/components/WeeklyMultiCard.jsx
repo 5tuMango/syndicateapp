@@ -249,26 +249,32 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
             {expanded ? `Hide legs ▴` : `${legs.length} legs ▾`}
           </button>
 
-          <button
-            onClick={handleCheck}
-            disabled={checking || uploading}
-            className="text-xs text-yellow-400 hover:text-yellow-300 disabled:opacity-50 transition-colors"
-          >
-            {checking ? 'Checking…' : '🔍 Check'}
-          </button>
+          {/* Check + Results only available once bet slip has been uploaded and bet is live */}
+          {multi.is_live ? (
+            <>
+              <button
+                onClick={handleCheck}
+                disabled={checking || uploading}
+                className="text-xs text-yellow-400 hover:text-yellow-300 disabled:opacity-50 transition-colors"
+              >
+                {checking ? 'Checking…' : '🔍 Check'}
+              </button>
 
-          {/* Upload results — always visible */}
-          <label className={`text-xs cursor-pointer transition-colors ${uploading ? 'text-slate-500' : 'text-slate-400 hover:text-blue-400'}`}>
-            {uploading ? 'Reading…' : '📷 Results'}
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              disabled={uploading}
-              onChange={handleResultUpload}
-            />
-          </label>
+              <label className={`text-xs cursor-pointer transition-colors ${uploading ? 'text-slate-500' : 'text-slate-400 hover:text-blue-400'}`}>
+                {uploading ? 'Reading…' : '📷 Results'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={handleResultUpload}
+                />
+              </label>
+            </>
+          ) : (
+            <span className="text-xs text-slate-600 italic">Awaiting bet slip</span>
+          )}
 
           <Link
             to="/weekly-multi"

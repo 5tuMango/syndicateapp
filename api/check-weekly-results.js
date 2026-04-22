@@ -22,7 +22,7 @@ export default async function handler(req, res) {
   try {
     // Fetch the weekly multi + its legs
     const multiRes = await sbFetch(
-      `${SUPABASE_URL}/rest/v1/weekly_multis?id=eq.${multiId}&select=id,week_label,stake,created_at,weekly_multi_legs(*)`,
+      `${SUPABASE_URL}/rest/v1/weekly_multis?id=eq.${multiId}&select=id,week_label,stake,is_live,created_at,weekly_multi_legs(*)`,
       'GET', null, SUPABASE_URL, SUPABASE_KEY
     )
     const multis = await multiRes.json()
@@ -30,6 +30,15 @@ export default async function handler(req, res) {
     if (!multi) return res.status(404).json({ error: 'Weekly multi not found' })
 
     const legs = [...(multi.weekly_multi_legs || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+
+    // Block result checking until the bet slip has been uploaded and confirmed
+    if (!multi.is_live) {
+      return res.status(200).json({
+        checked: 0, updatedLegs: 0, multiOutcome: 'pending',
+        message: 'Bet not yet live — upload the bet slip first before checking results.'
+      })
+    }
+
     const today = new Date().toISOString().slice(0, 10)
     const betDate = multi.created_at?.slice(0, 10) || today
 

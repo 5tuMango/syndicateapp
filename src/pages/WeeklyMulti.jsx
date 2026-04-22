@@ -369,6 +369,9 @@ export default function WeeklyMulti() {
       await supabase.from('weekly_multi_legs').update(update).eq('id', legId)
     }
 
+    // Mark the multi as live — bet is now placed, result checking can begin
+    await supabase.from('weekly_multis').update({ is_live: true }).eq('id', slipPreview.multiId)
+
     setSlipPreview(null)
     setManualAssignments({})
     load()
