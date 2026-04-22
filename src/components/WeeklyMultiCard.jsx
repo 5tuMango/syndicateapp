@@ -334,22 +334,24 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
                   {leg.odds != null && (
                     <span className="text-slate-400 text-sm">{parseFloat(leg.odds).toFixed(2)}</span>
                   )}
-                  {/* Admin: dropdown to set outcome; others: badge only */}
-                  {isAdmin ? (
-                    <select
-                      value={leg.outcome || 'pending'}
-                      onChange={(e) => saveLegOutcome(leg.id, e.target.value)}
-                      disabled={savingLeg[leg.id]}
-                      className={`text-xs px-1.5 py-0.5 rounded border bg-slate-800 focus:outline-none focus:border-slate-500 ${outcomeBadgeClass(leg.outcome)}`}
-                    >
-                      {LEG_OUTCOMES.map(o => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className={`text-xs px-1.5 py-0.5 rounded border ${outcomeBadgeClass(leg.outcome)}`}>
-                      {leg.outcome}
-                    </span>
+                  {/* Outcome controls only shown once bet is live */}
+                  {multi.is_live && (
+                    isAdmin ? (
+                      <select
+                        value={leg.outcome || 'pending'}
+                        onChange={(e) => saveLegOutcome(leg.id, e.target.value)}
+                        disabled={savingLeg[leg.id]}
+                        className={`text-xs px-1.5 py-0.5 rounded border bg-slate-800 focus:outline-none focus:border-slate-500 ${outcomeBadgeClass(leg.outcome)}`}
+                      >
+                        {LEG_OUTCOMES.map(o => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className={`text-xs px-1.5 py-0.5 rounded border ${outcomeBadgeClass(leg.outcome)}`}>
+                        {leg.outcome}
+                      </span>
+                    )
                   )}
                 </div>
               </div>

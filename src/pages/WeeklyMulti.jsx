@@ -636,8 +636,8 @@ export default function WeeklyMulti() {
                                 {leg.odds != null && (
                                   <span className="text-slate-400 text-xs shrink-0">@ {parseFloat(leg.odds).toFixed(2)}</span>
                                 )}
-                                <OutcomePill outcome={leg.outcome} />
-                                {isAdmin && (
+                                {multi.is_live && <OutcomePill outcome={leg.outcome} />}
+                                {isAdmin && multi.is_live && (
                                   <button
                                     onClick={() => openOverride(leg)}
                                     className="text-xs text-slate-500 hover:text-yellow-400 transition-colors shrink-0"
