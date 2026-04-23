@@ -620,7 +620,17 @@ export default function WeeklyMulti() {
                                 </span>
 
                                 {isMissed ? (
-                                  <span className="flex-1 text-xs text-red-400 italic">❌ Missed this week</span>
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <span className="text-xs text-red-400 italic">❌ Missed this week</span>
+                                    {!multi.is_live && (
+                                      <button
+                                        onClick={() => supabase.from('weekly_multi_legs').update({ outcome: 'pending' }).eq('id', leg.id).then(load)}
+                                        className="text-xs text-slate-500 hover:text-slate-300 underline transition-colors"
+                                      >
+                                        Undo
+                                      </button>
+                                    )}
+                                  </div>
                                 ) : (
                                   <>
                                     {/* Inline pick field — editable if open & can edit, otherwise read-only */}
