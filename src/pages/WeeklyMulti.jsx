@@ -664,8 +664,8 @@ export default function WeeklyMulti() {
                                   </>
                                 )}
 
-                                {/* Remove leg — admin only, before bet is live */}
-                                {isAdmin && !multi.is_live && !isMissed && (
+                                {/* Remove leg — anyone can mark as missed before bet is live */}
+                                {!multi.is_live && !isMissed && (
                                   <button
                                     onClick={() => handleRemoveLeg(leg)}
                                     className="text-xs text-slate-600 hover:text-red-400 transition-colors shrink-0 ml-1"
