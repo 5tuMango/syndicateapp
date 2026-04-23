@@ -399,7 +399,6 @@ export default function WeeklyMulti() {
 
   // ── Remove leg (mark as missed) ───────────────────────────────────────────
   async function handleRemoveLeg(leg) {
-    if (!confirm(`Mark ${legPersonaName(leg)} as missed for this week?`)) return
     await supabase.from('weekly_multi_legs').update({ outcome: 'missed' }).eq('id', leg.id)
     load()
   }
