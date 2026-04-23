@@ -10,7 +10,7 @@ const lbl = 'block text-xs text-slate-400 mb-1 uppercase tracking-wide'
 
 export default function EditBet() {
   const { id } = useParams()
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -35,7 +35,7 @@ export default function EditBet() {
       .eq('id', id)
       .single()
 
-    if (error || !data || data.user_id !== user.id) {
+    if (error || !data || (data.user_id !== user.id && !profile?.is_admin)) {
       navigate('/')
       return
     }
@@ -154,7 +154,7 @@ export default function EditBet() {
           stake: parseFloat(form.stake),
           outcome: finalOutcome,
           notes: form.notes.trim() || null,
-          event_time: form.event_time || null,
+          event_time: form.event_time || legs.find(l => l.event_time)?.event_time || null,
           is_rollover: form.is_rollover || false,
           rollover_source_id: form.is_rollover && form.rollover_source_id ? form.rollover_source_id : null,
           intend_to_rollover: form.intend_to_rollover || false,

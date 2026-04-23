@@ -44,6 +44,19 @@ const fixYear = (dateStr) => {
   return dateStr
 }
 
+// Fix times where the AI dropped the leading "1" from 24-hour times
+// e.g. "2026-04-26T9:50" → "2026-04-26T19:50" when that's clearly an evening game
+// We treat any extracted time with hour 1–9 as potentially a misread of 11–19.
+// Sports like AFL/NRL/NBA almost never start before 10:00 AEST, so if the hour
+// is single-digit (< 10) and the sport is not Horse Racing/Greyhounds, flag it.
+// We can't auto-correct without certainty, but we CAN zero-pad to catch "T9:50" → "T09:50"
+// and let the user see/correct the time in the form.
+const fixEventTime = (dateStr) => {
+  if (!dateStr) return dateStr
+  // Normalise "YYYY-MM-DDTH:MM" → "YYYY-MM-DDTHH:MM" (pad single-digit hour)
+  return dateStr.replace(/T(\d):/, 'T0$1:')
+}
+
 const fileToBase64 = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -106,9 +119,11 @@ export default function AddBet() {
   const removeLeg = (i) => setLegs((p) => p.filter((_, idx) => idx !== i))
   const setLeg = (i, key, val) => {
     setLegs((p) => p.map((leg, idx) => (idx === i ? { ...leg, [key]: val } : leg)))
-    // Keep bet date in sync with first leg's event_time on multis
+    // Keep bet date + bet-level event_time in sync with first leg's event_time on multis
     if (i === 0 && key === 'event_time' && form.bet_type === 'multi' && val) {
       set('date', val.substring(0, 10))
+      // Also sync the top-level event_time so the countdown bar has a time to show
+      if (!form.event_time) set('event_time', val)
     }
   }
 
@@ -204,7 +219,7 @@ export default function AddBet() {
         bet_type: d.bet_type === 'multi' ? 'multi' : d.bet_type === 'single' ? 'single' : prev.bet_type,
         odds: d.odds != null ? String(d.odds) : prev.odds,
         stake: d.stake != null ? String(d.stake) : prev.stake,
-        event_time: d.event_time ? fixYear(d.event_time.substring(0, 16)) : prev.event_time,
+        event_time: d.event_time ? fixEventTime(fixYear(d.event_time.substring(0, 16))) : prev.event_time,
         date: (d.bet_type !== 'multi' && d.event_time) ? fixYear(d.event_time).substring(0, 10) : prev.date,
         is_bonus_bet: d.is_bonus_bet === true ? true : prev.is_bonus_bet,
         bet_return_text: d.bet_return_text || prev.bet_return_text,
@@ -214,7 +229,7 @@ export default function AddBet() {
       if (d.bet_type === 'multi' && Array.isArray(d.legs) && d.legs.length > 0) {
         const mappedLegs = d.legs.map((leg) => ({
           sport: normalizeSport(leg.sport) || '',
-          event_time: leg.event_time ? fixYear(leg.event_time.substring(0, 16)) : '',
+          event_time: leg.event_time ? fixEventTime(fixYear(leg.event_time.substring(0, 16))) : '',
           event: leg.event || '',
           description: leg.description || '',
           selection: leg.selection || '',
@@ -224,10 +239,15 @@ export default function AddBet() {
           outcome: leg.outcome && ['won','lost','void'].includes(leg.outcome) ? leg.outcome : 'pending',
         }))
         setLegs(mappedLegs)
-        // Default bet date to first leg's event_time date
+        // Default bet date + event_time from first leg that has a time
         const firstLegTime = mappedLegs.find((l) => l.event_time)?.event_time
         if (firstLegTime) {
-          setForm((prev) => ({ ...prev, date: firstLegTime.substring(0, 10) }))
+          setForm((prev) => ({
+            ...prev,
+            date: firstLegTime.substring(0, 10),
+            // Populate bet-level event_time from legs so the countdown bar works for SGMs/multis
+            event_time: prev.event_time || firstLegTime,
+          }))
         }
       }
 
@@ -292,7 +312,7 @@ export default function AddBet() {
           outcome: form.outcome,
           notes: form.notes.trim() || null,
           screenshot_url: screenshotUrl || null,
-          event_time: form.event_time || null,
+          event_time: form.event_time || legs.find(l => l.event_time)?.event_time || null,
           is_bonus_bet: form.is_bonus_bet || false,
           is_rollover: form.is_rollover || false,
           rollover_source_id: form.is_rollover && rolloverPool ? rolloverPool.sourceId : null,

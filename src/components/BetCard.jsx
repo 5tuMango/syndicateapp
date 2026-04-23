@@ -524,7 +524,7 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
             </>
           )}
 
-          {isOwner && (
+          {(isOwner || profile?.is_admin) && (
             <>
               <button
                 onClick={() => navigate(`/edit-bet/${bet.id}`)}

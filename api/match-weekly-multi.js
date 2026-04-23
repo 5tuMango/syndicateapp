@@ -98,7 +98,7 @@ Return ONLY a valid JSON object in this exact shape:
 - "description": market type (e.g. "Head to Head", "Pick Your Line", "Win-Draw-Win")
 - "selection": exact selection text from the bet slip
 - "odds": decimal odds as a number
-- "event_time": event start time in AEST as "YYYY-MM-DDTHH:MM" 24-hour format — extract from the bet slip if shown, otherwise null
+- "event_time": event start time in AEST as "YYYY-MM-DDTHH:MM" 24-hour format — extract from the bet slip if shown, otherwise null. IMPORTANT: Sportsbet displays all times in 24-hour format. A time shown as "19:50" must be output as "19:50", NOT "9:50". Never drop the leading digit. Always use zero-padded two-digit hours (e.g. "09:00", "19:50").
 - "outcome": "won", "lost", "void", or "pending" — set from the bet slip if the result is shown, otherwise "pending"
 - "matched": true if clearly matched, false if uncertain or no pick was entered
 For unmatched/uncertain picks, set matched: false and omit event/selection/odds/event_time.
@@ -146,6 +146,10 @@ For unmatched/uncertain picks, set matched: false and omit event/selection/odds/
     const rawMatches = Array.isArray(parsed) ? parsed : (parsed.matches || [])
     const unmatchedSlipLegs = Array.isArray(parsed) ? [] : (parsed.unmatched_slip_legs || [])
 
+    // Normalise single-digit hours in event_time (AI occasionally drops the leading "1"
+    // from 24-hour times, e.g. returning "T9:50" instead of "T19:50")
+    const fixEventTime = (t) => t ? t.replace(/T(\d):/, 'T0$1:') : t
+
     // Enrich with leg_id and member info for the frontend
     const enriched = rawMatches.map(m => {
       const leg = sortedLegs[m.leg_index]
@@ -155,13 +159,19 @@ For unmatched/uncertain picks, set matched: false and omit event/selection/odds/
         : (leg.assigned_name || 'Unknown')
       return {
         ...m,
+        event_time: fixEventTime(m.event_time),
         leg_id: leg.id,
         member_name: memberName,
         raw_pick: leg.raw_pick || '',
       }
     })
 
-    return res.status(200).json({ matches: enriched, unmatched_slip_legs: unmatchedSlipLegs })
+    const fixedUnmatched = unmatchedSlipLegs.map(l => ({
+      ...l,
+      event_time: fixEventTime(l.event_time),
+    }))
+
+    return res.status(200).json({ matches: enriched, unmatched_slip_legs: fixedUnmatched })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }

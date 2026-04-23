@@ -44,12 +44,13 @@ CRITICAL — player context carries across screenshots: In Sportsbet's SGM layou
 - "stake": the dollar amount wagered as a number (e.g. 10.00)
 - "payout": the potential return amount as a number (e.g. 25.00)
 - "event_time": the event start time in AEST, format "YYYY-MM-DDTHH:MM" using 24-hour time (e.g. "${currentYear}-04-11T15:35"). Use ${currentYear} as the year unless a different year is clearly visible in the screenshot. For multi bets leave this null (use event_time on each leg instead).
+  CRITICAL — 24-HOUR TIME: Sportsbet displays all times in 24-hour format. A time that reads "19:50" on the slip means 7:50 PM — output it as "19:50", NOT "9:50". Do NOT drop the leading digit. Evening AFL/NRL/NBA games commonly start between 17:00–20:30 AEST. Always output a zero-padded two-digit hour (e.g. "09:50" for morning, "19:50" for evening).
 - "legs": flat array of objects — ONLY include this for multi bets.
   IMPORTANT: If the multi contains a Same Game Multi (SGM) as one of its components, expand the SGM into its individual sub-selections as separate leg entries — do NOT nest them. Use leg_group to link them.
 
   Each leg object has:
   - "sport": the sport for this specific leg — one of: AFL, NRL, Cricket, Horse Racing, Greyhounds, Tennis, Soccer, NBA, NFL, Boxing, MMA, Rugby Union, Golf, Other
-  - "event_time": the scheduled start time for this leg in AEST, format "YYYY-MM-DDTHH:MM" 24-hour (e.g. "${currentYear}-04-11T13:15"). Use ${currentYear} as the year unless a different year is clearly visible in the screenshot.
+  - "event_time": the scheduled start time for this leg in AEST, format "YYYY-MM-DDTHH:MM" 24-hour (e.g. "${currentYear}-04-11T13:15"). Use ${currentYear} as the year unless a different year is clearly visible in the screenshot. IMPORTANT: times are 24-hour — "19:35" must be output as "19:35" not "9:35". Always two-digit hour.
   - "event": the match or event name for this leg (string)
   - "description": the market type e.g. "Head to Head", "Win-Draw-Win", "Pick Your Line", "Player Goals", "Player Disposals" (string)
   - "selection": the specific pick. CRITICAL FOR PLAYER PROPS: In Sportsbet's SGM layout, player props show as a player name heading (e.g. "Isaac Heeney") followed by indented stat lines (e.g. "2+ Goals", "20+ Disposals"). Each stat line is a separate leg. The "selection" for each stat leg MUST include the player name — e.g. "Isaac Heeney 2+ Goals", "Isaac Heeney 20+ Disposals". NEVER use just "2+ Goals" alone as the selection — always prepend the player name.
