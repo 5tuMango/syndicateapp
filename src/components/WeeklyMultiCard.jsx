@@ -90,10 +90,10 @@ function combinedOdds(legs) {
 }
 
 function deriveOutcome(legs) {
-  const nonVoid = legs.filter(l => l.outcome !== 'void')
-  if (nonVoid.length === 0) return 'pending'
-  if (nonVoid.some(l => l.outcome === 'pending')) return 'pending'
-  if (nonVoid.some(l => l.outcome === 'lost')) return 'lost'
+  const countable = legs.filter(l => l.outcome !== 'void' && l.outcome !== 'missed')
+  if (countable.length === 0) return 'pending'
+  if (countable.some(l => l.outcome === 'pending')) return 'pending'
+  if (countable.some(l => l.outcome === 'lost')) return 'lost'
   return 'won'
 }
 
