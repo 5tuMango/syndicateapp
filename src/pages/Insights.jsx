@@ -131,21 +131,19 @@ export default function Insights() {
     const cutoff30d = new Date(now - 30 * 864e5).toISOString().slice(0, 10)
     return members.map((m) => {
       const mb = bets.filter((b) => betMemberId(b) === m.id && !b.is_rollover && !b.intend_to_rollover)
-      const resolved = mb.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
-      // Total P&L (winnings minus stake on wins, -stake on losses)
-      const plAll = resolved.reduce((s, b) => s + calcProfitLoss(b), 0)
-      const pl30d = resolved
+      // Only count winning bets — no negatives, no losses included
+      const wonBets = mb.filter((b) => b.outcome === 'won')
+      const wonAll = wonBets.reduce((s, b) => s + calcProfitLoss(b), 0)
+      const won30d = wonBets
         .filter((b) => b.date >= cutoff30d)
         .reduce((s, b) => s + calcProfitLoss(b), 0)
       // Last win date
-      const lastWin = mb
-        .filter((b) => b.outcome === 'won')
-        .sort((a, b) => b.date.localeCompare(a.date))[0]
+      const lastWin = wonBets.sort((a, b) => b.date.localeCompare(a.date))[0]
       const lastWinDate = lastWin ? lastWin.date : null
       const daysSinceWin = lastWinDate
         ? Math.floor((now - new Date(lastWinDate + 'T00:00:00')) / 864e5)
         : null
-      return { ...m, pl30d, plAll, lastWinDate, daysSinceWin }
+      return { ...m, won30d, wonAll, lastWinDate, daysSinceWin }
     })
   }, [bets, members, byPersonaId, personaMap])
 
@@ -441,13 +439,13 @@ export default function Insights() {
                         <tr key={row.id} className="border-b border-slate-700/50">
                           <td className="py-2 pr-4 text-white font-medium">{displayName(row)}</td>
                           <td className="py-2 pr-4 text-right">
-                            <span className={`font-semibold ${row.pl30d > 0 ? 'text-green-400' : row.pl30d < 0 ? 'text-red-400' : 'text-slate-500'}`}>
-                              {formatCurrency(row.pl30d)}
+                            <span className={`font-semibold ${row.won30d > 0 ? 'text-green-400' : 'text-slate-500'}`}>
+                              {row.won30d > 0 ? formatCurrency(row.won30d) : '$0'}
                             </span>
                           </td>
                           <td className="py-2 pr-4 text-right">
-                            <span className={`font-semibold ${row.plAll > 0 ? 'text-green-400' : row.plAll < 0 ? 'text-red-400' : 'text-slate-500'}`}>
-                              {formatCurrency(row.plAll)}
+                            <span className={`font-semibold ${row.wonAll > 0 ? 'text-green-400' : 'text-slate-500'}`}>
+                              {row.wonAll > 0 ? formatCurrency(row.wonAll) : '$0'}
                             </span>
                           </td>
                           <td className="py-2 text-right">
