@@ -32,15 +32,18 @@ const normalizeSport = (raw) => {
   return match || 'Other'
 }
 
-// Correct dates where the AI extracted the wrong year (e.g. 2025 instead of 2026)
+// Correct dates where the AI extracted the wrong year (e.g. 2025 instead of 2026).
+// IMPORTANT: do this via string replacement — NOT via Date objects + toISOString(),
+// which would convert AEST→UTC and silently shift the hour by -10 (the source of the
+// infamous "19:40 → 9:40" bug).
 const fixYear = (dateStr) => {
   if (!dateStr) return dateStr
   const currentYear = new Date().getFullYear()
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return dateStr
-  if (d.getFullYear() < currentYear) {
-    d.setFullYear(currentYear)
-    return d.toISOString().substring(0, dateStr.length <= 10 ? 10 : 16)
+  const match = dateStr.match(/^(\d{4})/)
+  if (!match) return dateStr
+  const year = parseInt(match[1], 10)
+  if (year < currentYear) {
+    return String(currentYear) + dateStr.substring(4)
   }
   return dateStr
 }

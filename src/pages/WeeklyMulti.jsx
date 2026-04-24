@@ -254,7 +254,9 @@ export default function WeeklyMulti() {
       description: leg.description || '',
       selection: leg.selection || '',
       odds: leg.odds != null ? String(leg.odds) : '',
-      event_time: leg.event_time ? new Date(leg.event_time).toISOString().substring(0, 16) : '',
+      // Use the stored string directly — DON'T re-parse via Date + toISOString(),
+      // which converts AEST→UTC and drops the hour by 10 (the "19:40 → 9:40" bug).
+      event_time: leg.event_time ? leg.event_time.substring(0, 16) : '',
     })
   }
 

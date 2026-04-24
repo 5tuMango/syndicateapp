@@ -154,15 +154,21 @@ For unmatched/uncertain picks, set matched: false and omit event/selection/odds/
     // 1. Pad single-digit hours  e.g. "T9:50" → "T09:50"
     // 2. Fix wrong year — AI sometimes outputs last year when Sportsbet shows relative
     //    dates like "Tomorrow" or day names. Bump any past year up to current year.
+    //
+    // IMPORTANT: year fix uses string replacement, NOT Date + toISOString(). Using
+    // toISOString() converts AEST→UTC and shifts the hour by -10, which caused bets
+    // to be stored with times 10 hours earlier than intended (e.g. "19:40" → "09:40").
     const fixEventTime = (t) => {
       if (!t) return t
       // Pad single-digit hour
       let fixed = t.replace(/T(\d):/, 'T0$1:')
-      // Fix year if in the past
-      const d = new Date(fixed)
-      if (!isNaN(d.getTime()) && d.getFullYear() < currentYear) {
-        d.setFullYear(currentYear)
-        fixed = d.toISOString().substring(0, fixed.length)
+      // Fix year if in the past — pure string swap, no timezone math
+      const yearMatch = fixed.match(/^(\d{4})/)
+      if (yearMatch) {
+        const year = parseInt(yearMatch[1], 10)
+        if (year < currentYear) {
+          fixed = String(currentYear) + fixed.substring(4)
+        }
       }
       return fixed
     }
