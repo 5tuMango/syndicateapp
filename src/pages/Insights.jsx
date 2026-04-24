@@ -134,7 +134,7 @@ export default function Insights() {
       all: '1970-01-01',
     }
     return members.map((m) => {
-      const mb = bets.filter((b) => betMemberId(b) === m.id && !b.is_rollover)
+      const mb = bets.filter((b) => betMemberId(b) === m.id && !b.is_rollover && !b.intend_to_rollover)
       const rates = {}
       for (const [label, cutoff] of Object.entries(cutoffs)) {
         const period = mb.filter((b) => b.date >= cutoff && b.outcome !== 'void')
@@ -157,6 +157,7 @@ export default function Insights() {
   const bySport = useMemo(() => {
     // Collect all resolved legs with their sport (leg.sport takes priority, fall back to parent bet.sport)
     const resolvedLegs = bets.flatMap((b) => {
+      if (b.is_rollover || b.intend_to_rollover) return []
       const legs = b.bet_legs || []
       if (legs.length > 0) {
         return legs
@@ -190,7 +191,7 @@ export default function Insights() {
   // ── Multi bet stats ───────────────────────────────────────────────────────
   const multiStats = useMemo(() => {
     return members.map((m) => {
-      const multis = bets.filter((b) => betMemberId(b) === m.id && b.bet_type === 'multi')
+      const multis = bets.filter((b) => betMemberId(b) === m.id && b.bet_type === 'multi' && !b.is_rollover && !b.intend_to_rollover)
       const resolved = multis.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
       const won = resolved.filter((b) => b.outcome === 'won').length
 
@@ -227,7 +228,7 @@ export default function Insights() {
   // ── Risk profile ─────────────────────────────────────────────────────────
   const riskProfiles = useMemo(() => {
     return members.map((m) => {
-      const mb = bets.filter((b) => betMemberId(b) === m.id && b.outcome !== 'void' && !b.is_rollover)
+      const mb = bets.filter((b) => betMemberId(b) === m.id && b.outcome !== 'void' && !b.is_rollover && !b.intend_to_rollover)
       if (mb.length === 0) return { member: m, empty: true }
       const avgOdds = mb.reduce((s, b) => s + parseFloat(b.odds), 0) / mb.length
       const avgStake = mb.reduce((s, b) => s + parseFloat(b.stake), 0) / mb.length
