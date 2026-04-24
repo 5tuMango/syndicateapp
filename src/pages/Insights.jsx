@@ -125,31 +125,27 @@ export default function Insights() {
     })
   }, [bets, weeklyMultis, members, byPersonaId, personaMap])
 
-  // ── Strike rate table (7d / 30d / all-time) ───────────────────────────────
-  const strikeRates = useMemo(() => {
+  // ── Winnings table (30d / all-time / last win date) ──────────────────────
+  const winningsTable = useMemo(() => {
     const now = new Date()
-    const cutoffs = {
-      '7d': new Date(now - 7 * 864e5).toISOString().slice(0, 10),
-      '30d': new Date(now - 30 * 864e5).toISOString().slice(0, 10),
-      all: '1970-01-01',
-    }
+    const cutoff30d = new Date(now - 30 * 864e5).toISOString().slice(0, 10)
     return members.map((m) => {
       const mb = bets.filter((b) => betMemberId(b) === m.id && !b.is_rollover && !b.intend_to_rollover)
-      const rates = {}
-      for (const [label, cutoff] of Object.entries(cutoffs)) {
-        const period = mb.filter((b) => b.date >= cutoff && b.outcome !== 'void')
-        const resolved = period.filter((b) => b.outcome !== 'pending')
-        const won = resolved.filter((b) => b.outcome === 'won').length
-        rates[label] = resolved.length ? Math.round((won / resolved.length) * 100) : null
-      }
-      // Days since last win
+      const resolved = mb.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
+      // Total P&L (winnings minus stake on wins, -stake on losses)
+      const plAll = resolved.reduce((s, b) => s + calcProfitLoss(b), 0)
+      const pl30d = resolved
+        .filter((b) => b.date >= cutoff30d)
+        .reduce((s, b) => s + calcProfitLoss(b), 0)
+      // Last win date
       const lastWin = mb
         .filter((b) => b.outcome === 'won')
         .sort((a, b) => b.date.localeCompare(a.date))[0]
-      const daysSinceWin = lastWin
-        ? Math.floor((now - new Date(lastWin.date + 'T00:00:00')) / 864e5)
+      const lastWinDate = lastWin ? lastWin.date : null
+      const daysSinceWin = lastWinDate
+        ? Math.floor((now - new Date(lastWinDate + 'T00:00:00')) / 864e5)
         : null
-      return { ...m, ...rates, daysSinceWin }
+      return { ...m, pl30d, plAll, lastWinDate, daysSinceWin }
     })
   }, [bets, members, byPersonaId, personaMap])
 
@@ -429,25 +425,31 @@ export default function Insights() {
                 )}
               </Section>
 
-              <Section title="Strike Rates">
+              <Section title="Winnings">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-slate-400 text-xs uppercase tracking-wide border-b border-slate-700">
                         <th className="pb-2 pr-4">Member</th>
-                        <th className="pb-2 pr-4 text-right">Last 7d</th>
                         <th className="pb-2 pr-4 text-right">Last 30d</th>
                         <th className="pb-2 pr-4 text-right">All Time</th>
                         <th className="pb-2 text-right">Last Win</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {strikeRates.map((row) => (
+                      {winningsTable.map((row) => (
                         <tr key={row.id} className="border-b border-slate-700/50">
                           <td className="py-2 pr-4 text-white font-medium">{displayName(row)}</td>
-                          <td className="py-2 pr-4 text-right">{rateCell(row['7d'])}</td>
-                          <td className="py-2 pr-4 text-right">{rateCell(row['30d'])}</td>
-                          <td className="py-2 pr-4 text-right">{rateCell(row['all'])}</td>
+                          <td className="py-2 pr-4 text-right">
+                            <span className={`font-semibold ${row.pl30d > 0 ? 'text-green-400' : row.pl30d < 0 ? 'text-red-400' : 'text-slate-500'}`}>
+                              {formatCurrency(row.pl30d)}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-right">
+                            <span className={`font-semibold ${row.plAll > 0 ? 'text-green-400' : row.plAll < 0 ? 'text-red-400' : 'text-slate-500'}`}>
+                              {formatCurrency(row.plAll)}
+                            </span>
+                          </td>
                           <td className="py-2 text-right">
                             {row.daysSinceWin === null
                               ? <span className="text-slate-600">—</span>
