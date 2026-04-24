@@ -108,18 +108,48 @@ function outcomeBadgeClass(outcome) {
 
 const LEG_OUTCOMES = ['pending', 'won', 'lost', 'void']
 
-export default function WeeklyMultiCard({ multi, onUpdate }) {
-  const { profile } = useAuth()
+export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = false }) {
+  const { profile, user } = useAuth()
   const { byUserId, byPersonaId } = usePersonas()
   const isAdmin = profile?.is_admin
 
-  const [expanded, setExpanded] = useState(false)
+  // The persona claimed by the current user (used to detect their own leg)
+  const myPersona = user ? byUserId[user.id] : null
+  const isMyLeg = (leg) => {
+    if (leg.persona_id && myPersona) return leg.persona_id === myPersona.id
+    return !!(leg.assigned_user_id && leg.assigned_user_id === user?.id)
+  }
+
+  const [expanded, setExpanded] = useState(defaultExpanded)
   const [uploading, setUploading] = useState(false)
   const [checking, setChecking] = useState(false)
   const [msg, setMsg] = useState(null)
   const [savingLeg, setSavingLeg] = useState({})
+  const [inlinePicks, setInlinePicks] = useState({})
+  const [savingPick, setSavingPick] = useState({})
 
   const legs = [...(multi.weekly_multi_legs || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+
+  // Auto-expand when the user's own leg has no pick yet (prompt them to enter it)
+  useEffect(() => {
+    if (!multi.is_live && legs.some(l => isMyLeg(l) && !l.raw_pick && !l.selection)) {
+      setExpanded(true)
+    }
+  }, [multi.id])
+
+  async function saveInlinePick(leg) {
+    const value = inlinePicks[leg.id]
+    if (value === undefined) return
+    if (value.trim() === (leg.raw_pick || '').trim()) return
+    setSavingPick(s => ({ ...s, [leg.id]: true }))
+    await supabase.from('weekly_multi_legs').update({
+      raw_pick: value.trim() || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', leg.id)
+    setSavingPick(s => ({ ...s, [leg.id]: false }))
+    onUpdate?.()
+  }
+
   const odds = combinedOdds(legs)
   const outcome = deriveOutcome(legs)
   const stake = parseFloat(multi.stake || 0)
@@ -306,54 +336,85 @@ export default function WeeklyMultiCard({ multi, onUpdate }) {
             const persona = (leg.persona_id && byPersonaId[leg.persona_id])
               || (leg.assigned_user_id && byUserId[leg.assigned_user_id])
             const label = persona ? persona.emoji : (leg.assigned_name || '?')
+            const mine = isMyLeg(leg)
+            const isMissed = leg.outcome === 'missed'
+            const canEnterPick = mine && !multi.is_live && !isMissed
+            const currentPick = inlinePicks[leg.id] ?? leg.raw_pick ?? ''
             return (
-              <div key={leg.id} className="bg-slate-900/80 rounded-md px-3 py-2 flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1 flex-wrap">
-                    <span className="text-base mr-1">{label}</span>
-                    {leg.selection || leg.event ? (
-                      <>
-                        <span className="text-sm text-white">{leg.event}</span>
-                        {leg.description && <span className="text-slate-400 text-sm"> — {leg.description}</span>}
-                        {leg.selection && <span className="text-green-400 text-sm font-medium"> · {leg.selection}</span>}
-                      </>
-                    ) : leg.raw_pick ? (
-                      <span className="text-slate-300 text-sm italic">{leg.raw_pick}</span>
-                    ) : (
-                      <span className="text-slate-600 text-xs italic">No pick</span>
+              <div key={leg.id} className={`rounded-md px-3 py-2 ${isMissed ? 'bg-red-950/40 border border-red-800/30' : 'bg-slate-900/80'}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-base mr-1">{label}</span>
+                      {isMissed ? (
+                        <span className="text-red-400 text-xs italic">❌ Missed this week</span>
+                      ) : leg.selection || leg.event ? (
+                        <>
+                          <span className="text-sm text-white">{leg.event}</span>
+                          {leg.description && <span className="text-slate-400 text-sm"> — {leg.description}</span>}
+                          {leg.selection && <span className="text-green-400 text-sm font-medium"> · {leg.selection}</span>}
+                        </>
+                      ) : leg.raw_pick ? (
+                        <span className={`text-sm italic ${mine ? 'text-slate-200' : 'text-slate-400'}`}>{leg.raw_pick}</span>
+                      ) : canEnterPick ? (
+                        <span className="text-purple-400 text-xs italic animate-pulse">Tap below to enter your pick ↓</span>
+                      ) : (
+                        <span className="text-slate-600 text-xs italic">No pick</span>
+                      )}
+                    </div>
+                    {leg.event_time && !canEnterPick && (
+                      <div className="flex items-center gap-2 mt-0.5 ml-7">
+                        <span className="text-slate-500 text-xs">{formatEventTime(leg.event_time)}</span>
+                        <CountdownBadge eventTime={leg.event_time} />
+                      </div>
                     )}
                   </div>
-                  {leg.event_time && (
-                    <div className="flex items-center gap-2 mt-0.5 ml-7">
-                      <span className="text-slate-500 text-xs">{formatEventTime(leg.event_time)}</span>
-                      <CountdownBadge eventTime={leg.event_time} />
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {leg.odds != null && (
+                      <span className="text-slate-400 text-sm">{parseFloat(leg.odds).toFixed(2)}</span>
+                    )}
+                    {multi.is_live && (
+                      isAdmin ? (
+                        <select
+                          value={leg.outcome || 'pending'}
+                          onChange={(e) => saveLegOutcome(leg.id, e.target.value)}
+                          disabled={savingLeg[leg.id]}
+                          className={`text-xs px-1.5 py-0.5 rounded border bg-slate-800 focus:outline-none focus:border-slate-500 ${outcomeBadgeClass(leg.outcome)}`}
+                        >
+                          {LEG_OUTCOMES.map(o => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`text-xs px-1.5 py-0.5 rounded border ${outcomeBadgeClass(leg.outcome)}`}>
+                          {leg.outcome}
+                        </span>
+                      )
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {leg.odds != null && (
-                    <span className="text-slate-400 text-sm">{parseFloat(leg.odds).toFixed(2)}</span>
-                  )}
-                  {/* Outcome controls only shown once bet is live */}
-                  {multi.is_live && (
-                    isAdmin ? (
-                      <select
-                        value={leg.outcome || 'pending'}
-                        onChange={(e) => saveLegOutcome(leg.id, e.target.value)}
-                        disabled={savingLeg[leg.id]}
-                        className={`text-xs px-1.5 py-0.5 rounded border bg-slate-800 focus:outline-none focus:border-slate-500 ${outcomeBadgeClass(leg.outcome)}`}
-                      >
-                        {LEG_OUTCOMES.map(o => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className={`text-xs px-1.5 py-0.5 rounded border ${outcomeBadgeClass(leg.outcome)}`}>
-                        {leg.outcome}
-                      </span>
-                    )
-                  )}
-                </div>
+
+                {/* Inline pick entry — only for the user's own leg before bet goes live */}
+                {canEnterPick && (
+                  <div className="flex gap-2 mt-2">
+                    <input
+                      type="text"
+                      value={currentPick}
+                      onChange={e => setInlinePicks(s => ({ ...s, [leg.id]: e.target.value }))}
+                      onKeyDown={e => e.key === 'Enter' && saveInlinePick(leg)}
+                      onBlur={() => saveInlinePick(leg)}
+                      placeholder="Enter your pick e.g. Collingwood +17.5"
+                      className="flex-1 bg-slate-700 border border-purple-500/40 rounded px-2.5 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
+                    />
+                    <button
+                      onClick={() => saveInlinePick(leg)}
+                      disabled={savingPick[leg.id]}
+                      className="text-xs px-3 py-1.5 bg-purple-500/20 text-purple-300 rounded border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50 transition-colors shrink-0"
+                    >
+                      {savingPick[leg.id] ? '…' : 'Save'}
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })}

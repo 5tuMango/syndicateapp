@@ -496,7 +496,7 @@ export default function Dashboard() {
             {feedSections.pinnedWeekly && (
               <div className="space-y-3">
                 <h2 className="text-xs font-semibold text-purple-400 uppercase tracking-wide">📌 This Week's Multi</h2>
-                <WeeklyMultiCard multi={feedSections.pinnedWeekly} onUpdate={handleWeeklyUpdate} />
+                <WeeklyMultiCard multi={feedSections.pinnedWeekly} onUpdate={handleWeeklyUpdate} defaultExpanded={true} />
               </div>
             )}
 
