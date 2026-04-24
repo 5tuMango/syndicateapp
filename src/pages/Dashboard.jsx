@@ -213,15 +213,28 @@ export default function Dashboard() {
     tenDaysAgo.setDate(tenDaysAgo.getDate() - 10)
     const tenDaysAgoStr = tenDaysAgo.toISOString().slice(0, 10)
 
+    // Pin the most recent live weekly multi that still has at least one pending leg.
+    // It stays pinned at the very top until every leg has a final outcome.
+    const pinnedWeekly = [...weeklyMultis]
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .find(m => {
+        if (!m.is_live) return false
+        const legs = m.weekly_multi_legs || []
+        return legs.some(l => !l.outcome || l.outcome === 'pending')
+      }) || null
+
+    const pinnedId = pinnedWeekly?.id || null
+
     const allItems = [
       ...filteredBets.map(b => {
         const legs = b.bet_legs || []
         const hasLostLeg = legs.some(l => l.outcome === 'lost')
         return { type: 'bet', key: b.id, data: b, outcome: b.outcome, lastTime: betLastEventTime(b), date: b.date, created_at: b.created_at, hasLostLeg }
       }),
-      ...weeklyMultis.map(m => {
+      // Exclude the pinned weekly from normal sections — it renders separately at the top
+      ...weeklyMultis.filter(m => m.id !== pinnedId).map(m => {
         const legs = m.weekly_multi_legs || []
-        const nonVoid = legs.filter(l => l.outcome !== 'void')
+        const nonVoid = legs.filter(l => l.outcome !== 'void' && l.outcome !== 'missed')
         const outcome = nonVoid.length === 0 ? 'pending'
           : nonVoid.every(l => l.outcome === 'won') ? 'won'
           : nonVoid.some(l => l.outcome === 'lost') ? 'lost'
@@ -255,7 +268,7 @@ export default function Dashboard() {
     // Archive: lost 10+ days ago
     const archive = allItems.filter(i => i.outcome === 'lost' && (i.date || '') < tenDaysAgoStr).sort(byDate)
 
-    return { alivePending, deadPending, recentLoss, wins, archive }
+    return { pinnedWeekly, alivePending, deadPending, recentLoss, wins, archive }
   }, [filteredBets, weeklyMultis])
 
   return (
@@ -439,7 +452,7 @@ export default function Dashboard() {
       {/* Active / Archive tab toggle */}
       <div className="flex gap-2">
         {[
-          { key: 'active', label: 'Active', count: feedSections.alivePending.length + feedSections.deadPending.length + feedSections.recentLoss.length + feedSections.wins.length },
+          { key: 'active', label: 'Active', count: (feedSections.pinnedWeekly ? 1 : 0) + feedSections.alivePending.length + feedSections.deadPending.length + feedSections.recentLoss.length + feedSections.wins.length },
           { key: 'archive', label: 'Archive', count: feedSections.archive.length },
         ].map(({ key, label, count }) => (
           <button
@@ -473,12 +486,20 @@ export default function Dashboard() {
         )
       ) : (
         /* ── Active tab ── */
-        feedSections.alivePending.length + feedSections.deadPending.length + feedSections.recentLoss.length + feedSections.wins.length === 0 ? (
+        !feedSections.pinnedWeekly && feedSections.alivePending.length + feedSections.deadPending.length + feedSections.recentLoss.length + feedSections.wins.length === 0 ? (
           <div className="text-center text-slate-400 py-16">
             {Object.values(filters).some(Boolean) ? 'No bets match the current filters.' : 'No bets yet. Be the first to add one!'}
           </div>
         ) : (
           <div className="space-y-5">
+            {/* Pinned weekly multi — stays at the top until every leg is resolved */}
+            {feedSections.pinnedWeekly && (
+              <div className="space-y-3">
+                <h2 className="text-xs font-semibold text-purple-400 uppercase tracking-wide">📌 This Week's Multi</h2>
+                <WeeklyMultiCard multi={feedSections.pinnedWeekly} onUpdate={handleWeeklyUpdate} />
+              </div>
+            )}
+
             {/* Section 1: Still alive pending */}
             {feedSections.alivePending.length > 0 && (
               <div className="space-y-3">
