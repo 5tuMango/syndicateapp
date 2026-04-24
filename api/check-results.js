@@ -187,6 +187,36 @@ export default async function handler(req, res) {
   }
 }
 
+// ── Helpers: parse an API-Sports score block to determine a specific game's status.
+// Used by the short-circuit path in checkBetResult — lets us skip Claude entirely when
+// the game in question is still UPCOMING or IN PROGRESS per API-Sports.
+function extractTeams(eventStr) {
+  if (!eventStr) return []
+  // Split on "v" or "vs" (word-boundary, case-insensitive). Handles "Richmond v Melbourne"
+  // and "Richmond vs Melbourne". Drops empty parts and trims whitespace.
+  return eventStr
+    .split(/\s+v(?:s)?\.?\s+/i)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function apiSportsGameStatus(scoresText, teams) {
+  if (!scoresText || !teams.length) return 'unknown'
+  const lines = scoresText.split('\n')
+  for (const line of lines) {
+    const lower = line.toLowerCase()
+    // Require AT LEAST ONE team name to match — API-Sports returns multiple games
+    // for a date, and we only care about the one this bet is on.
+    if (teams.some((t) => lower.includes(t.toLowerCase()))) {
+      if (line.startsWith('[FINAL]')) return 'final'
+      if (line.startsWith('[IN PROGRESS]')) return 'in_progress'
+      if (line.startsWith('[UPCOMING]')) return 'upcoming'
+      return 'unknown'
+    }
+  }
+  return 'unknown'
+}
+
 // ── API-Sports: fetch confirmed scores for a sport + date ─────────────────────
 async function fetchApiSportsGames(sport, dateStr, apiKey) {
   const url = API_SPORTS_ENDPOINTS[sport]
@@ -385,6 +415,34 @@ async function checkBetResult(apiKey, apiSportsKey, bet) {
       return `${sport} games on ${date}:\n${v}`
     })
     .join('\n\n')
+
+  // ── Short-circuit: if API-Sports confirms every relevant game is still
+  // [UPCOMING] or [IN PROGRESS], we cannot resolve it yet — skip Claude entirely.
+  // This saves a full web-search loop whenever the cron runs before kick-off or
+  // mid-game. Requires POSITIVE identification — unknowns fall through to Claude.
+  const checkableLegs = isMulti
+    ? legs
+    : [{ sport: bet.sport, event: bet.event, event_time: bet.event_time }]
+  const allCovered = checkableLegs.length > 0 && checkableLegs.every(
+    (l) => l.sport && API_SPORTS_ENDPOINTS[l.sport]
+  )
+  if (allCovered && scoresMap.size > 0) {
+    const allUnfinished = checkableLegs.every((l) => {
+      const date = l.event_time ? l.event_time.split('T')[0] : bet.date
+      const scoreText = scoresMap.get(`${l.sport}:${date}`)
+      if (!scoreText) return false // no data for this sport/date → let Claude try
+      const status = apiSportsGameStatus(scoreText, extractTeams(l.event))
+      return status === 'upcoming' || status === 'in_progress'
+    })
+    if (allUnfinished) {
+      console.log(`Short-circuit: API-Sports shows all games upcoming/in-progress — skipping Claude`)
+      return {
+        outcome: 'pending',
+        confidence: 'high',
+        reasoning: 'API-Sports: games not finished yet',
+      }
+    }
+  }
 
   // ── Step 2: Build bet description ──────────────────────────────────────────
   let betDesc
