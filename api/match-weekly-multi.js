@@ -56,6 +56,7 @@ export default async function handler(req, res) {
   }
 
   const sortedLegs = [...legs].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  const currentYear = new Date().getFullYear()
 
   const pickList = sortedLegs.map((leg, i) => {
     const name = leg.assigned_user_id ? (profileMap[leg.assigned_user_id] || 'Unknown') : (leg.assigned_name || 'Unknown')
@@ -98,7 +99,7 @@ Return ONLY a valid JSON object in this exact shape:
 - "description": market type (e.g. "Head to Head", "Pick Your Line", "Win-Draw-Win")
 - "selection": exact selection text from the bet slip
 - "odds": decimal odds as a number
-- "event_time": event start time in AEST as "YYYY-MM-DDTHH:MM" 24-hour format — extract from the bet slip if shown, otherwise null. IMPORTANT: Sportsbet displays all times in 24-hour format. A time shown as "19:50" must be output as "19:50", NOT "9:50". Never drop the leading digit. Always use zero-padded two-digit hours (e.g. "09:00", "19:50").
+- "event_time": event start time in AEST as "YYYY-MM-DDTHH:MM" 24-hour format — extract from the bet slip if shown, otherwise null. IMPORTANT: Sportsbet displays all times in 24-hour format. A time shown as "19:50" must be output as "19:50", NOT "9:50". Never drop the leading digit. Always use zero-padded two-digit hours (e.g. "09:00", "19:50"). YEAR: Sportsbet often shows relative dates like "Tomorrow", "Saturday" or "Sunday" without a year — always use ${currentYear} as the year. Never output a past year.
 - "outcome": "won", "lost", "void", or "pending" — set from the bet slip if the result is shown, otherwise "pending"
 - "matched": true if clearly matched, false if uncertain or no pick was entered
 For unmatched/uncertain picks, set matched: false and omit event/selection/odds/event_time.
@@ -146,9 +147,22 @@ For unmatched/uncertain picks, set matched: false and omit event/selection/odds/
     const rawMatches = Array.isArray(parsed) ? parsed : (parsed.matches || [])
     const unmatchedSlipLegs = Array.isArray(parsed) ? [] : (parsed.unmatched_slip_legs || [])
 
-    // Normalise single-digit hours in event_time (AI occasionally drops the leading "1"
-    // from 24-hour times, e.g. returning "T9:50" instead of "T19:50")
-    const fixEventTime = (t) => t ? t.replace(/T(\d):/, 'T0$1:') : t
+    // Fix event_time strings coming from the AI:
+    // 1. Pad single-digit hours  e.g. "T9:50" → "T09:50"
+    // 2. Fix wrong year — AI sometimes outputs last year when Sportsbet shows relative
+    //    dates like "Tomorrow" or day names. Bump any past year up to current year.
+    const fixEventTime = (t) => {
+      if (!t) return t
+      // Pad single-digit hour
+      let fixed = t.replace(/T(\d):/, 'T0$1:')
+      // Fix year if in the past
+      const d = new Date(fixed)
+      if (!isNaN(d.getTime()) && d.getFullYear() < currentYear) {
+        d.setFullYear(currentYear)
+        fixed = d.toISOString().substring(0, fixed.length)
+      }
+      return fixed
+    }
 
     // Enrich with leg_id and member info for the frontend
     const enriched = rawMatches.map(m => {
