@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { calcProfitLoss, calcWinnings, formatCurrency, outcomeBadge, profitLossColor, eventTimeToDate, formatEventTime, evaluateBetReturn } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import { usePersonas } from '../hooks/usePersonas'
+import { fileToResizedBase64 } from '../utils/resizeImage'
 
 // ── Single hook: current timestamp, ticks every second ───────────────────────
 function useNow() {
@@ -359,18 +360,8 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
     setUploadingResult(true)
     setCheckMsg(null)
     try {
-      // Convert all selected images to base64 in parallel
-      const images = await Promise.all(
-        files.map(
-          (file) =>
-            new Promise((resolve, reject) => {
-              const reader = new FileReader()
-              reader.onload = () => resolve({ imageBase64: reader.result.split(',')[1], mimeType: file.type })
-              reader.onerror = reject
-              reader.readAsDataURL(file)
-            })
-        )
-      )
+      // Resize + base64 all selected images in parallel (shrinks payload before Claude).
+      const images = await Promise.all(files.map(fileToResizedBase64))
       const res = await fetch('/api/extract-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

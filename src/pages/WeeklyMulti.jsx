@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { usePersonas } from '../hooks/usePersonas'
+import { fileToResizedBase64 } from '../utils/resizeImage'
 
 const OUTCOME_OPTS = ['won', 'lost', 'void', 'pending']
 
@@ -307,14 +308,7 @@ export default function WeeklyMulti() {
     if (files.length === 0) return
     setSlipUploading(true)
     try {
-      const images = await Promise.all(
-        files.map(f => new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve({ imageBase64: reader.result.split(',')[1], mimeType: f.type })
-          reader.onerror = reject
-          reader.readAsDataURL(f)
-        }))
-      )
+      const images = await Promise.all(files.map(fileToResizedBase64))
       const res = await fetch('/api/match-weekly-multi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

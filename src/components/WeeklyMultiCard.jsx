@@ -4,6 +4,7 @@ import { formatCurrency, profitLossColor, eventTimeToDate, formatEventTime } fro
 import { usePersonas } from '../hooks/usePersonas'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { fileToResizedBase64 } from '../utils/resizeImage'
 
 function useNow() {
   const [now, setNow] = useState(() => Date.now())
@@ -188,14 +189,7 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
     setUploading(true)
     setMsg(null)
     try {
-      const images = await Promise.all(
-        files.map(f => new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve({ imageBase64: reader.result.split(',')[1], mimeType: f.type })
-          reader.onerror = reject
-          reader.readAsDataURL(f)
-        }))
-      )
+      const images = await Promise.all(files.map(fileToResizedBase64))
       const res = await fetch('/api/extract-weekly-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

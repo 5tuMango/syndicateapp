@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { SPORTS, LEG_SPORTS, evaluateBetReturn } from '../lib/utils'
+import { fileToResizedBase64 } from '../utils/resizeImage'
 
 const newLeg = () => ({ sport: '', event_time: '', event: '', description: '', selection: '', odds: '', leg_group: '', group_odds: '', outcome: 'pending' })
 
@@ -193,7 +194,7 @@ export default function AddBet() {
       const { data: { publicUrl } } = supabase.storage.from('bet-screenshots').getPublicUrl(path)
       setScreenshotUrl(publicUrl)
 
-      const images = await Promise.all(files.map(async (f) => ({ imageBase64: await fileToBase64(f), mimeType: f.type })))
+      const images = await Promise.all(files.map(fileToResizedBase64))
       const response = await fetch('/api/extract-bet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
