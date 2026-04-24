@@ -19,7 +19,10 @@ function evaluateBetReturn(betReturnText, outcome, legs = []) {
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
 const MODEL = 'claude-haiku-4-5-20251001'
-const MODEL_SEARCH = 'claude-sonnet-4-6' // Sonnet for web search — Haiku doesn't reliably use tools
+// Haiku 4.5 for web search as well — ~3× cheaper than Sonnet on input and handles
+// result lookup reliably in practice. Revert to 'claude-sonnet-4-6' if tool use regresses.
+const MODEL_SEARCH = 'claude-haiku-4-5-20251001'
+const MAX_SEARCH_ITERATIONS = 3 // capped from 5 to prevent runaway token bloat
 
 // ── API-Sports config per sport ───────────────────────────────────────────────
 // These sports get confirmed scores fetched before Claude is called.
@@ -77,9 +80,26 @@ export default async function handler(req, res) {
     }
 
     const results = []
+    const nowMs = Date.now()
+    // Stored event_time strings are naive "YYYY-MM-DDTHH:MM" meant as AEST.
+    // Parse with an explicit +10:00 offset before comparing to now.
+    const isFuture = (eventTime) => {
+      if (!eventTime) return false
+      const s = eventTime.substring(0, 16)
+      const ms = Date.parse(s + ':00+10:00')
+      return !isNaN(ms) && ms > nowMs
+    }
 
     for (const bet of bets) {
       try {
+        // Skip any single bet whose event_time is still in the future — nothing to check yet.
+        // For multi bets, the per-leg skip below handles partial-future cases.
+        if (bet.bet_type !== 'multi' && isFuture(bet.event_time)) {
+          console.log(`Bet [${bet.event}] → skipped (future event: ${bet.event_time})`)
+          results.push({ betId: bet.id, outcome: 'pending', skipped: 'future event' })
+          continue
+        }
+
         const pendingLegs = bet.bet_type === 'multi'
           ? [...(bet.bet_legs || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).filter((l) => l.outcome === 'pending')
           : []
@@ -88,10 +108,10 @@ export default async function handler(req, res) {
           const today = new Date().toISOString().slice(0, 10)
           // Check each pending leg individually with a delay between calls
           for (const leg of pendingLegs) {
-            // Skip legs whose event hasn't happened yet
-            const legDate = leg.event_time ? leg.event_time.split('T')[0] : null
-            if (legDate && legDate > today) {
-              console.log(`  Leg [${leg.selection || leg.description}] → skipped (future event: ${legDate})`)
+            // Skip legs whose event hasn't happened yet — compare full timestamps,
+            // not just dates, so a 7:40pm game isn't checked at 9am the same day.
+            if (isFuture(leg.event_time)) {
+              console.log(`  Leg [${leg.selection || leg.description}] → skipped (future event: ${leg.event_time})`)
               continue
             }
             const result = await checkSingleLeg(ANTHROPIC_KEY, leg, bet.date)
@@ -272,7 +292,7 @@ Search for this result and return JSON.`
 
   const messages = [{ role: 'user', content: userMessage }]
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < MAX_SEARCH_ITERATIONS; i++) {
     const response = await fetch(ANTHROPIC_API, {
       method: 'POST',
       headers: {
@@ -430,7 +450,7 @@ ${jsonShape}`
   const messages = [{ role: 'user', content: userMessage }]
 
   // ── Step 3: Agentic loop with web search fallback ──────────────────────────
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < MAX_SEARCH_ITERATIONS; i++) {
     const response = await fetch(ANTHROPIC_API, {
       method: 'POST',
       headers: {
@@ -441,7 +461,7 @@ ${jsonShape}`
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 2048,
+        max_tokens: 512,
         system,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages,

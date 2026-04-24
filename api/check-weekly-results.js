@@ -4,7 +4,9 @@
 import { logUsage } from './_lib/logUsage.js'
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
-const MODEL_SEARCH = 'claude-sonnet-4-6'
+// Haiku 4.5 for web search — ~3× cheaper than Sonnet. Revert to 'claude-sonnet-4-6' if tool use regresses.
+const MODEL_SEARCH = 'claude-haiku-4-5-20251001'
+const MAX_SEARCH_ITERATIONS = 3
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -52,11 +54,21 @@ export default async function handler(req, res) {
     let updatedCount = 0
     const needsReview = []
 
+    const nowMs = Date.now()
+    // Stored event_time strings are naive "YYYY-MM-DDTHH:MM" meant as AEST.
+    // Parse with an explicit +10:00 offset before comparing to now.
+    const isFuture = (eventTime) => {
+      if (!eventTime) return false
+      const s = eventTime.substring(0, 16)
+      const ms = Date.parse(s + ':00+10:00')
+      return !isNaN(ms) && ms > nowMs
+    }
+
     for (const leg of pendingLegs) {
-      // Skip legs whose event hasn't happened yet
-      const legDate = leg.event_time ? leg.event_time.split('T')[0] : null
-      if (legDate && legDate > today) {
-        console.log(`  Leg [${leg.selection || leg.raw_pick}] → skipped (future: ${legDate})`)
+      // Skip legs whose event hasn't happened yet — full timestamp comparison,
+      // so a 7:40pm game isn't checked at 9am the same day.
+      if (isFuture(leg.event_time)) {
+        console.log(`  Leg [${leg.selection || leg.raw_pick}] → skipped (future: ${leg.event_time})`)
         continue
       }
 
@@ -150,7 +162,7 @@ Search for this result and return JSON.`
 
   const messages = [{ role: 'user', content: userMessage }]
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < MAX_SEARCH_ITERATIONS; i++) {
     const response = await fetch(ANTHROPIC_API, {
       method: 'POST',
       headers: {
