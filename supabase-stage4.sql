@@ -3,7 +3,10 @@
 -- Run this entire file in the Supabase SQL editor
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Teams table
+-- STEP 1: Add columns to profiles FIRST (policies below reference these)
+alter table public.profiles add column if not exists is_admin boolean default false;
+
+-- STEP 2: Teams table (policy references profiles.is_admin — must exist first)
 create table public.teams (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -16,8 +19,7 @@ create policy "Admins manage teams" on public.teams for all using (
   exists (select 1 from public.profiles where id = auth.uid() and is_admin = true)
 );
 
--- Add columns to profiles
-alter table public.profiles add column if not exists is_admin boolean default false;
+-- STEP 3: Add team_id to profiles (references teams — must exist first)
 alter table public.profiles add column if not exists team_id uuid references public.teams(id);
 
 -- Allow admins to update any profile (needed for team assignment)
@@ -25,7 +27,7 @@ create policy "Admins update any profile" on public.profiles for update using (
   exists (select 1 from public.profiles where id = auth.uid() and is_admin = true)
 );
 
--- Weekly multis
+-- STEP 4: Weekly multis
 create table public.weekly_multis (
   id uuid primary key default gen_random_uuid(),
   week_label text not null,
@@ -39,7 +41,7 @@ create policy "Admins manage weekly multis" on public.weekly_multis for all usin
   exists (select 1 from public.profiles where id = auth.uid() and is_admin = true)
 );
 
--- Weekly multi legs
+-- STEP 5: Weekly multi legs
 create table public.weekly_multi_legs (
   id uuid primary key default gen_random_uuid(),
   weekly_multi_id uuid references public.weekly_multis(id) on delete cascade,
@@ -63,7 +65,7 @@ create policy "Members update own leg" on public.weekly_multi_legs for update us
   assigned_user_id = auth.uid()
 ) with check (assigned_user_id = auth.uid());
 
--- Notifications
+-- STEP 6: Notifications
 create table public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references public.profiles(id) on delete cascade,
@@ -80,13 +82,13 @@ create policy "Admins insert notifications" on public.notifications for insert w
 );
 create policy "Users mark own read" on public.notifications for update using (auth.uid() = user_id);
 
--- Insert 2 starter teams
+-- STEP 7: Insert 2 starter teams
 insert into public.teams (name, color) values
   ('Team Syndicate', 'blue'),
   ('Team Punt', 'purple');
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- TO SET YOURSELF AS ADMIN, run this after finding your user ID:
+-- TO SET YOURSELF AS ADMIN, run this separately after the above succeeds:
 -- select id, email from auth.users;
 -- update public.profiles set is_admin = true where id = 'YOUR_USER_ID_HERE';
 -- ─────────────────────────────────────────────────────────────────────────────

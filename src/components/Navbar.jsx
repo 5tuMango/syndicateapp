@@ -22,6 +22,7 @@ export default function Navbar() {
     ...(profile?.is_admin ? [
       { to: '/admin/personas', label: 'Personas' },
       { to: '/admin/assign-bets', label: 'Assign Bets' },
+      { to: '/admin/usage', label: 'API Usage' },
     ] : []),
   ]
 

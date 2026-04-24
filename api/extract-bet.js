@@ -1,7 +1,9 @@
 // Vercel Serverless Function — keeps the Anthropic API key server-side only
 // POST /api/extract-bet
-// Body: { images: [{ imageBase64, mimeType }] }
+// Body: { images: [{ imageBase64, mimeType }], userId? }
 //   OR legacy: { imageBase64: string, mimeType: string }
+
+import { logUsage } from './_lib/logUsage.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -13,7 +15,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not set on the server.' })
   }
 
-  const { imageBase64, mimeType, images } = req.body
+  const { imageBase64, mimeType, images, userId } = req.body
 
   // Normalise to array — support both legacy single-image and new multi-image format
   const imageList = images && images.length > 0
@@ -114,6 +116,7 @@ On Sportsbet, a "Power Price" bet shows TWO odds numbers next to the bet type, e
     }
 
     const result = await response.json()
+    logUsage({ endpoint: 'extract-bet', userId, model: 'claude-sonnet-4-6', usage: result.usage, imageCount: imageList.length })
     const text = result.content?.[0]?.text ?? ''
 
     // Strip any accidental markdown code fences

@@ -198,7 +198,7 @@ export default function AddBet() {
       const response = await fetch('/api/extract-bet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images }),
+        body: JSON.stringify({ images, userId: user?.id }),
       })
       const result = await response.json()
       if (!result.success) throw new Error(result.error || 'Extraction failed')

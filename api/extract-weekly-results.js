@@ -2,6 +2,8 @@
 // Body: { images: [{ imageBase64, mimeType }], multiId }
 // Reads results screenshots and updates weekly_multi_legs outcomes in Supabase
 
+import { logUsage } from './_lib/logUsage.js'
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
@@ -12,7 +14,7 @@ export default async function handler(req, res) {
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' })
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' })
 
-  const { imageBase64, mimeType, images, multiId } = req.body
+  const { imageBase64, mimeType, images, multiId, userId } = req.body
   const imageList = images && images.length > 0
     ? images
     : imageBase64 ? [{ imageBase64, mimeType }] : []
@@ -112,6 +114,7 @@ Only include legs where you can clearly read the result. leg_index is 0-based ma
     }
 
     const data = await response.json()
+    logUsage({ endpoint: 'extract-weekly-results', userId, model: 'claude-sonnet-4-6', usage: data.usage, imageCount: imageList.length })
     const textBlock = data.content.find(b => b.type === 'text')
     if (!textBlock) return res.status(500).json({ error: 'No response from AI' })
 

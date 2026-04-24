@@ -4,6 +4,8 @@
 // Reads a Sportsbet bet slip and matches each leg to each member's informal pick.
 // Returns matches for admin to preview before confirming.
 
+import { logUsage } from './_lib/logUsage.js'
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
@@ -14,7 +16,7 @@ export default async function handler(req, res) {
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' })
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' })
 
-  const { imageBase64, mimeType, images, multiId } = req.body
+  const { imageBase64, mimeType, images, multiId, userId } = req.body
   const imageList = images?.length > 0
     ? images
     : imageBase64 ? [{ imageBase64, mimeType }] : []
@@ -135,6 +137,7 @@ For unmatched/uncertain picks, set matched: false and omit event/selection/odds/
     }
 
     const data = await response.json()
+    logUsage({ endpoint: 'match-weekly-multi', userId, model: 'claude-sonnet-4-6', usage: data.usage, imageCount: imageList.length })
     const textBlock = data.content.find(b => b.type === 'text')
     if (!textBlock) return res.status(500).json({ error: 'No response from AI' })
 

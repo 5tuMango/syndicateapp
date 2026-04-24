@@ -1,6 +1,8 @@
 // Vercel Serverless Function — checks pending weekly multi leg results via Claude web search
 // POST /api/check-weekly-results  { multiId: 'uuid' }
 
+import { logUsage } from './_lib/logUsage.js'
+
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
 const MODEL_SEARCH = 'claude-sonnet-4-6'
 
@@ -172,6 +174,7 @@ Search for this result and return JSON.`
     }
 
     const data = await response.json()
+    logUsage({ endpoint: 'check-weekly-results', model: data.model, usage: data.usage })
 
     if (data.stop_reason === 'end_turn') {
       const textBlock = data.content.find(b => b.type === 'text')

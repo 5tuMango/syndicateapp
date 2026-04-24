@@ -3,6 +3,8 @@
 //   OR legacy: { imageBase64, mimeType, betId }
 // Reads one or more Sportsbet results screenshots and updates leg outcomes in Supabase
 
+import { logUsage } from './_lib/logUsage.js'
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
@@ -13,7 +15,7 @@ export default async function handler(req, res) {
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' })
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' })
 
-  const { imageBase64, mimeType, images, betId } = req.body
+  const { imageBase64, mimeType, images, betId, userId } = req.body
 
   // Normalise to array — support both legacy single-image and new multi-image format
   const imageList = images && images.length > 0
@@ -113,6 +115,7 @@ Only include legs where you can clearly read the result from at least one screen
     }
 
     const data = await response.json()
+    logUsage({ endpoint: 'extract-results', userId, model: 'claude-sonnet-4-6', usage: data.usage, imageCount: imageList.length })
     const textBlock = data.content.find((b) => b.type === 'text')
     if (!textBlock) return res.status(500).json({ error: 'No response from AI' })
 

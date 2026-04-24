@@ -286,7 +286,7 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
       const res = await fetch('/api/check-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ betId: bet.id }),
+        body: JSON.stringify({ betId: bet.id, userId: user?.id }),
       })
       const text = await res.text()
       let data
@@ -365,7 +365,7 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
       const res = await fetch('/api/extract-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images, betId: bet.id }),
+        body: JSON.stringify({ images, betId: bet.id, userId: user?.id }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Server error')

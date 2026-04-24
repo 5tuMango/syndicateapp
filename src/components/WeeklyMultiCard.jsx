@@ -163,7 +163,7 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
       const res = await fetch('/api/check-weekly-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ multiId: multi.id }),
+        body: JSON.stringify({ multiId: multi.id, userId: user?.id }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Server error')
@@ -193,7 +193,7 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
       const res = await fetch('/api/extract-weekly-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images, multiId: multi.id }),
+        body: JSON.stringify({ images, multiId: multi.id, userId: user?.id }),
       })
       const text = await res.text()
       let data

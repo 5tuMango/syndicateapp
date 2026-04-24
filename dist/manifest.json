@@ -1,0 +1,17 @@
+{
+  "name": "Syndic8",
+  "short_name": "Syndic8",
+  "description": "The Syndicate punters club app",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/syndic8-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

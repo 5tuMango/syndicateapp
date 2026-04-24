@@ -312,7 +312,7 @@ export default function WeeklyMulti() {
       const res = await fetch('/api/match-weekly-multi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images, multiId }),
+        body: JSON.stringify({ images, multiId, userId: user?.id }),
       })
       // Use .text() first so we get a useful error even if the body isn't valid JSON
       const text = await res.text()

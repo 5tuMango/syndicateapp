@@ -1,6 +1,8 @@
 // Vercel Serverless Function — checks pending bet results via Claude + API-Sports
-// POST /api/check-results  { betId: 'uuid' }       → check a single bet
-// GET  /api/check-results  (with cron auth header)  → check all pending bets
+// POST /api/check-results  { betId: 'uuid', userId? }  → check a single bet
+// GET  /api/check-results  (with cron auth header)     → check all pending bets
+
+import { logUsage } from './_lib/logUsage.js'
 
 function evaluateBetReturn(betReturnText, outcome, legs = []) {
   if (!betReturnText || !outcome || outcome === 'pending') return null
@@ -294,6 +296,7 @@ Search for this result and return JSON.`
     }
 
     const data = await response.json()
+    logUsage({ endpoint: 'check-results', model: data.model, usage: data.usage })
 
     if (data.stop_reason === 'end_turn') {
       const textBlock = data.content.find((b) => b.type === 'text')
@@ -451,6 +454,7 @@ ${jsonShape}`
     }
 
     const data = await response.json()
+    logUsage({ endpoint: 'check-results', model: data.model, usage: data.usage })
 
     if (data.stop_reason === 'end_turn') {
       const textBlock = data.content.find((b) => b.type === 'text')
