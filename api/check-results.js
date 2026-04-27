@@ -10,6 +10,7 @@ import {
   extractTeams,
   findGame,
 } from './_lib/apiSports.js'
+import { resolveLeg } from './_lib/resolveLeg.js'
 
 function evaluateBetReturn(betReturnText, outcome, legs = []) {
   if (!betReturnText || !outcome || outcome === 'pending') return null
@@ -112,7 +113,7 @@ export default async function handler(req, res) {
               console.log(`  Leg [${leg.selection || leg.description}] → skipped (future event: ${leg.event_time})`)
               continue
             }
-            const result = await checkSingleLeg(ANTHROPIC_KEY, API_SPORTS_KEY, leg, bet.date)
+            const result = await checkSingleLeg(ANTHROPIC_KEY, API_SPORTS_KEY, leg, bet.date, SUPABASE_URL, SUPABASE_KEY)
             console.log(`  Leg [${leg.selection || leg.description}] → ${result.outcome} (${result.reasoning || ''})`)
             if (result.outcome === 'void') {
               results.push({ betId: bet.id, outcome: 'pending', needs_review: true, reasoning: `Void leg: ${leg.selection || leg.description}` })
@@ -189,7 +190,7 @@ export default async function handler(req, res) {
 // Now takes apiSportsKey too — if the sport is supported, we fetch confirmed
 // scores and inject them into Claude's context as ground truth. Cuts web-search
 // iterations dramatically on H2H/handicap legs.
-async function checkSingleLeg(apiKey, apiSportsKey, leg, betDate) {
+async function checkSingleLeg(apiKey, apiSportsKey, leg, betDate, supabaseUrl, supabaseKey) {
   let date = leg.event_time ? leg.event_time.split('T')[0] : betDate
   // Fix stale years — if event_time year is before the bet was placed, use the bet date year
   if (date && betDate) {
@@ -204,6 +205,15 @@ async function checkSingleLeg(apiKey, apiSportsKey, leg, betDate) {
   const selection = leg.selection || ''
   const sport = leg.sport || ''
   const year = date ? date.split('-')[0] : new Date().getFullYear()
+
+  // ── In-house resolver (AFL match markets) ────────────────────────────────────
+  if (supabaseUrl && supabaseKey) {
+    const inHouse = await resolveLeg(leg, betDate, supabaseUrl, supabaseKey)
+    if (inHouse.resolved && inHouse.outcome && inHouse.outcome !== 'needs_review') {
+      console.log(`  Leg [${selection}] → in-house: ${inHouse.outcome} (${inHouse.reasoning || ''})`)
+      return { outcome: inHouse.outcome, confidence: 'high', reasoning: inHouse.reasoning }
+    }
+  }
 
   // ── Fetch confirmed score from API-Sports (if sport supported) ──────────────
   // If the game is upcoming/in-progress per API-Sports, short-circuit with pending.
