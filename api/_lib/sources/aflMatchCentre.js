@@ -48,8 +48,17 @@ export async function fetchMatchesForRound(compSeasonId, roundNumber) {
 // Returns raw player stats response for a match
 export async function fetchPlayerStats(matchProviderId) {
   const url = `${STATS_BASE}/playerStats/match/${matchProviderId}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`AFL player stats HTTP ${res.status} for ${matchProviderId}`)
+  const res = await fetch(url, {
+    headers: {
+      'Origin': 'https://www.afl.com.au',
+      'Referer': 'https://www.afl.com.au/',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    },
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`AFL player stats HTTP ${res.status} for ${matchProviderId}: ${body.substring(0, 200)}`)
+  }
   return res.json()
 }
 

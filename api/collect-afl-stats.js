@@ -92,7 +92,7 @@ export default async function handler(req, res) {
           statsData = await fetchPlayerStats(matchId)
         } catch (err) {
           console.log(`  Stats fetch failed for ${matchId}: ${err.message}`)
-          summary.push({ match: `${home} v ${away}`, round: roundNumber, status: 'stats_fetch_failed' })
+          summary.push({ match: `${home} v ${away}`, round: roundNumber, status: 'stats_fetch_failed', error: err.message })
           continue
         }
 
