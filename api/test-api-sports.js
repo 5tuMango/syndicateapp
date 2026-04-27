@@ -1,17 +1,27 @@
 // Diagnostic endpoint for the API-Sports integration.
-// Usage:   GET /api/test-api-sports?sport=AFL&date=2026-04-24
-// Returns the raw + formatted game list for that sport/date, plus status breakdown.
+// Usage:
+//   GET /api/test-api-sports                          → health check (key set? all sports reachable?)
+//   GET /api/test-api-sports?sport=AFL&date=2026-04-25 → game list for that sport/date
 // Admin-only gate via ADMIN_TEST_SECRET (set this env var and pass ?key=<secret>).
 
-const API_SPORTS_ENDPOINTS = {
-  AFL: 'https://v1.afl.api-sports.io/games',
-  NRL: 'https://v1.rugby.api-sports.io/games',
-  NBA: 'https://v2.nba.api-sports.io/games',
-}
+import {
+  isSportSupported,
+  listSupportedSports,
+  fetchGames,
+  formatGamesForContext,
+} from './_lib/apiSports.js'
 
-const FINISHED_STATUSES = new Set([
-  'FT', 'AOT', 'AET', 'PEN', 'FN', 'After Over Time', 'Finished',
-])
+// Per-sport status probe URL — uses /status when available so we hit the cheapest
+// endpoint that still confirms subscription + returns request quota info.
+const STATUS_URLS = {
+  AFL:        'https://v1.afl.api-sports.io/status',
+  NBA:        'https://v2.nba.api-sports.io/status',
+  NBL:        'https://v1.basketball.api-sports.io/status',
+  Basketball: 'https://v1.basketball.api-sports.io/status',
+  Soccer:     'https://v3.football.api-sports.io/status',
+  NFL:        'https://v1.american-football.api-sports.io/status',
+  NCAAF:      'https://v1.american-football.api-sports.io/status',
+}
 
 export default async function handler(req, res) {
   const apiKey = process.env.API_SPORTS_KEY
@@ -19,123 +29,97 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'API_SPORTS_KEY not set on server' })
   }
 
-  // Light gate: require ?key=<ADMIN_TEST_SECRET> if the env var is set.
-  // If no secret is configured, endpoint is open (fine for a diag endpoint in dev).
   const adminSecret = process.env.ADMIN_TEST_SECRET
   if (adminSecret && req.query.key !== adminSecret) {
     return res.status(401).json({ error: 'Unauthorized — pass ?key=<ADMIN_TEST_SECRET>' })
   }
 
-  const sport = req.query.sport || 'AFL'
-  const date = req.query.date || new Date().toISOString().slice(0, 10)
-
-  const url = API_SPORTS_ENDPOINTS[sport]
-  if (!url) {
-    return res.status(400).json({
-      error: `Unsupported sport "${sport}". Supported: ${Object.keys(API_SPORTS_ENDPOINTS).join(', ')}`,
-    })
-  }
-
-  try {
-    const started = Date.now()
-    const r = await fetch(`${url}?date=${date}`, {
-      headers: { 'x-apisports-key': apiKey },
-    })
-    const elapsed = Date.now() - started
-
-    if (!r.ok) {
-      const body = await r.text()
-      return res.status(r.status).json({
-        ok: false,
-        sport,
-        date,
-        url: `${url}?date=${date}`,
-        statusCode: r.status,
-        elapsed_ms: elapsed,
-        body: body.substring(0, 2000),
-      })
+  // ── Health-check mode: no sport param → probe each supported sport ─────────
+  if (!req.query.sport) {
+    // Dedupe: NBL + Basketball share a status URL, NFL + NCAAF share a status URL
+    const uniqueProbes = new Map() // statusUrl → first sport label using it
+    for (const sport of listSupportedSports()) {
+      const url = STATUS_URLS[sport]
+      if (url && !uniqueProbes.has(url)) uniqueProbes.set(url, sport)
     }
 
-    const data = await r.json()
-    const games = Array.isArray(data.response) ? data.response : []
-
-    // Format the same way check-results.js does so you can verify parsing matches.
-    const formatted = []
-    for (const game of games) {
-      try {
-        const home = game.teams?.home?.name
-        const away = game.teams?.away?.name
-        if (!home || !away) continue
-
-        const statusRaw = game.status?.long || game.status?.short || ''
-        const finished =
-          FINISHED_STATUSES.has(game.status?.short) ||
-          statusRaw.toLowerCase().includes('finish') ||
-          statusRaw.toLowerCase().includes('complete')
-
-        let homeScore, awayScore
-        if (sport === 'AFL') {
-          homeScore = game.scores?.home?.total
-          awayScore = game.scores?.away?.total
-        } else {
-          homeScore = game.scores?.home?.total ?? game.scores?.home
-          awayScore = game.scores?.away?.total ?? game.scores?.away
+    const probes = await Promise.all(
+      [...uniqueProbes.entries()].map(async ([url, sport]) => {
+        const t0 = Date.now()
+        try {
+          const r = await fetch(url, { headers: { 'x-apisports-key': apiKey } })
+          const elapsed = Date.now() - t0
+          const body = await r.text()
+          let parsed = null
+          try { parsed = JSON.parse(body) } catch {}
+          return {
+            api: sport,
+            url,
+            ok: r.ok,
+            status: r.status,
+            elapsed_ms: elapsed,
+            account: parsed?.response?.account ?? null,
+            subscription: parsed?.response?.subscription ?? null,
+            requests: parsed?.response?.requests ?? null,
+            errors: parsed?.errors ?? null,
+            bodyPreview: r.ok ? null : body.substring(0, 300),
+          }
+        } catch (err) {
+          return { api: sport, url, ok: false, error: err.message }
         }
-
-        let tag
-        if (finished && homeScore != null && awayScore != null) tag = '[FINAL]'
-        else if (homeScore != null) tag = '[IN PROGRESS]'
-        else tag = '[UPCOMING]'
-
-        formatted.push({
-          tag,
-          home,
-          away,
-          homeScore,
-          awayScore,
-          statusRaw,
-          game_time: game.date || game.game?.date?.start || null,
-        })
-      } catch (err) {
-        formatted.push({ error: err.message, raw: game })
-      }
-    }
-
-    // Summary counts
-    const counts = {
-      total: formatted.length,
-      final: formatted.filter((g) => g.tag === '[FINAL]').length,
-      in_progress: formatted.filter((g) => g.tag === '[IN PROGRESS]').length,
-      upcoming: formatted.filter((g) => g.tag === '[UPCOMING]').length,
-    }
-
-    // Text block matching what check-results.js injects into Claude's prompt
-    const claudeContext = formatted
-      .map((g) => {
-        if (g.tag === '[FINAL]' || g.tag === '[IN PROGRESS]') {
-          return `${g.tag} ${g.home} ${g.homeScore} - ${g.awayScore} ${g.away}`
-        }
-        return `${g.tag} ${g.home} vs ${g.away}`
       })
-      .join('\n')
+    )
 
     return res.status(200).json({
       ok: true,
+      mode: 'health-check',
+      apiKeyPresent: true,
+      apiKeyMasked: apiKey.slice(0, 4) + '…' + apiKey.slice(-4),
+      supportedSports: listSupportedSports(),
+      probes,
+      hint: 'Add ?sport=AFL&date=YYYY-MM-DD to fetch a game list',
+    })
+  }
+
+  // ── Game-list mode: ?sport=X&date=Y ────────────────────────────────────────
+  const sport = req.query.sport
+  const date = req.query.date || new Date().toISOString().slice(0, 10)
+
+  if (!isSportSupported(sport)) {
+    return res.status(400).json({
+      error: `Unsupported sport "${sport}". Supported: ${listSupportedSports().join(', ')}`,
+    })
+  }
+
+  const started = Date.now()
+  const games = await fetchGames(sport, date, apiKey)
+  const elapsed = Date.now() - started
+
+  if (!games) {
+    return res.status(502).json({
+      ok: false,
       sport,
       date,
-      url: `${url}?date=${date}`,
       elapsed_ms: elapsed,
-      counts,
-      claudeContextPreview: claudeContext,
-      games: formatted,
-      rawResponseShape: {
-        errors: data.errors || null,
-        results: data.results ?? null,
-        paging: data.paging ?? null,
-        responseLength: games.length,
-      },
+      error: 'Failed to fetch games (network error or API rejected the key/subscription)',
     })
-  } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message })
   }
+
+  const counts = {
+    total: games.length,
+    final: games.filter((g) => g.status === 'final').length,
+    in_progress: games.filter((g) => g.status === 'in_progress').length,
+    upcoming: games.filter((g) => g.status === 'upcoming').length,
+    unknown: games.filter((g) => g.status === 'unknown').length,
+  }
+
+  return res.status(200).json({
+    ok: true,
+    sport,
+    date,
+    elapsed_ms: elapsed,
+    counts,
+    claudeContextPreview: formatGamesForContext(games),
+    games: games.map(({ raw, ...g }) => g), // strip raw to keep response small
+  })
 }

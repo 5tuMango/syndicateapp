@@ -3,6 +3,13 @@
 // GET  /api/check-results  (with cron auth header)     → check all pending bets
 
 import { logUsage } from './_lib/logUsage.js'
+import {
+  isSportSupported,
+  fetchGames,
+  formatGamesForContext,
+  extractTeams,
+  findGame,
+} from './_lib/apiSports.js'
 
 function evaluateBetReturn(betReturnText, outcome, legs = []) {
   if (!betReturnText || !outcome || outcome === 'pending') return null
@@ -24,17 +31,8 @@ const MODEL = 'claude-haiku-4-5-20251001'
 const MODEL_SEARCH = 'claude-haiku-4-5-20251001'
 const MAX_SEARCH_ITERATIONS = 3 // capped from 5 to prevent runaway token bloat
 
-// ── API-Sports config per sport ───────────────────────────────────────────────
-// These sports get confirmed scores fetched before Claude is called.
-// Horse Racing, Tennis, Soccer etc. fall through to Claude web search only.
-const API_SPORTS_ENDPOINTS = {
-  AFL:  'https://v1.afl.api-sports.io/games',
-  NRL:  'https://v1.rugby.api-sports.io/games',
-  NBA:  'https://v2.nba.api-sports.io/games',
-}
-
-// Status codes that mean the game is finished across the different APIs
-const FINISHED_STATUSES = new Set(['FT', 'AOT', 'AET', 'PEN', 'FN', 'After Over Time', 'Finished'])
+// API-Sports support is provided by ./_lib/apiSports.js
+// NRL is NOT supported (API-Sports Rugby API is rugby union only).
 
 export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') {
@@ -114,7 +112,7 @@ export default async function handler(req, res) {
               console.log(`  Leg [${leg.selection || leg.description}] → skipped (future event: ${leg.event_time})`)
               continue
             }
-            const result = await checkSingleLeg(ANTHROPIC_KEY, leg, bet.date)
+            const result = await checkSingleLeg(ANTHROPIC_KEY, API_SPORTS_KEY, leg, bet.date)
             console.log(`  Leg [${leg.selection || leg.description}] → ${result.outcome} (${result.reasoning || ''})`)
             if (result.outcome === 'void') {
               results.push({ betId: bet.id, outcome: 'pending', needs_review: true, reasoning: `Void leg: ${leg.selection || leg.description}` })
@@ -187,104 +185,11 @@ export default async function handler(req, res) {
   }
 }
 
-// ── Helpers: parse an API-Sports score block to determine a specific game's status.
-// Used by the short-circuit path in checkBetResult — lets us skip Claude entirely when
-// the game in question is still UPCOMING or IN PROGRESS per API-Sports.
-function extractTeams(eventStr) {
-  if (!eventStr) return []
-  // Split on "v" or "vs" (word-boundary, case-insensitive). Handles "Richmond v Melbourne"
-  // and "Richmond vs Melbourne". Drops empty parts and trims whitespace.
-  return eventStr
-    .split(/\s+v(?:s)?\.?\s+/i)
-    .map((s) => s.trim())
-    .filter(Boolean)
-}
-
-function apiSportsGameStatus(scoresText, teams) {
-  if (!scoresText || !teams.length) return 'unknown'
-  const lines = scoresText.split('\n')
-  for (const line of lines) {
-    const lower = line.toLowerCase()
-    // Require AT LEAST ONE team name to match — API-Sports returns multiple games
-    // for a date, and we only care about the one this bet is on.
-    if (teams.some((t) => lower.includes(t.toLowerCase()))) {
-      if (line.startsWith('[FINAL]')) return 'final'
-      if (line.startsWith('[IN PROGRESS]')) return 'in_progress'
-      if (line.startsWith('[UPCOMING]')) return 'upcoming'
-      return 'unknown'
-    }
-  }
-  return 'unknown'
-}
-
-// ── API-Sports: fetch confirmed scores for a sport + date ─────────────────────
-async function fetchApiSportsGames(sport, dateStr, apiKey) {
-  const url = API_SPORTS_ENDPOINTS[sport]
-  if (!url || !apiKey) return null
-
-  try {
-    const res = await fetch(`${url}?date=${dateStr}`, {
-      headers: { 'x-apisports-key': apiKey },
-    })
-    if (!res.ok) return null
-    const data = await res.json()
-    if (!Array.isArray(data.response) || data.response.length === 0) return null
-
-    const lines = []
-    for (const game of data.response) {
-      try {
-        const home = game.teams?.home?.name
-        const away = game.teams?.away?.name
-        if (!home || !away) continue
-
-        const statusRaw = game.status?.long || game.status?.short || ''
-        const finished = FINISHED_STATUSES.has(game.status?.short) ||
-          statusRaw.toLowerCase().includes('finish') ||
-          statusRaw.toLowerCase().includes('complete')
-
-        // Score format differs slightly per API
-        let homeScore, awayScore
-        if (sport === 'AFL') {
-          homeScore = game.scores?.home?.total
-          awayScore = game.scores?.away?.total
-          // AFL also has goals/behinds — include if available
-          const hg = game.scores?.home?.goals
-          const hb = game.scores?.home?.behinds
-          const ag = game.scores?.away?.goals
-          const ab = game.scores?.away?.behinds
-          if (finished && homeScore != null && awayScore != null) {
-            const scoreStr = (hg != null)
-              ? `${home} ${hg}.${hb}.${homeScore} def/lost to ${away} ${ag}.${ab}.${awayScore}`
-              : `${home} ${homeScore} - ${awayScore} ${away}`
-            lines.push(`[FINAL] ${scoreStr}`)
-          } else if (homeScore != null) {
-            lines.push(`[IN PROGRESS] ${home} ${homeScore} - ${awayScore} ${away}`)
-          }
-        } else {
-          // NRL (rugby) and NBA
-          homeScore = game.scores?.home?.total ?? game.scores?.home
-          awayScore = game.scores?.away?.total ?? game.scores?.away
-          if (finished && homeScore != null && awayScore != null) {
-            lines.push(`[FINAL] ${home} ${homeScore} - ${awayScore} ${away}`)
-          } else if (homeScore != null) {
-            lines.push(`[IN PROGRESS] ${home} ${homeScore} - ${awayScore} ${away}`)
-          } else {
-            lines.push(`[UPCOMING] ${home} vs ${away}`)
-          }
-        }
-      } catch {
-        // skip malformed game entry
-      }
-    }
-
-    return lines.length ? lines.join('\n') : null
-  } catch {
-    return null
-  }
-}
-
 // ── Check a single leg with a focused search ──────────────────────────────────
-async function checkSingleLeg(apiKey, leg, betDate) {
+// Now takes apiSportsKey too — if the sport is supported, we fetch confirmed
+// scores and inject them into Claude's context as ground truth. Cuts web-search
+// iterations dramatically on H2H/handicap legs.
+async function checkSingleLeg(apiKey, apiSportsKey, leg, betDate) {
   let date = leg.event_time ? leg.event_time.split('T')[0] : betDate
   // Fix stale years — if event_time year is before the bet was placed, use the bet date year
   if (date && betDate) {
@@ -300,14 +205,40 @@ async function checkSingleLeg(apiKey, leg, betDate) {
   const sport = leg.sport || ''
   const year = date ? date.split('-')[0] : new Date().getFullYear()
 
-  const system = `You are checking the result of a single Australian sports bet leg. Search the web and return ONLY valid JSON — no markdown, no explanation.
+  // ── Fetch confirmed score from API-Sports (if sport supported) ──────────────
+  // If the game is upcoming/in-progress per API-Sports, short-circuit with pending.
+  // If finished, inject the score into Claude's context so it doesn't web-search for it.
+  let confirmedScoreLine = null
+  if (apiSportsKey && isSportSupported(sport)) {
+    const games = await fetchGames(sport, date, apiSportsKey)
+    if (Array.isArray(games) && games.length > 0) {
+      const teams = extractTeams(event)
+      const game = findGame(games, teams)
+      if (game) {
+        if (game.status === 'upcoming' || game.status === 'in_progress') {
+          console.log(`  Leg [${selection}] → API-Sports: game not finished (${game.status}) — skipping Claude`)
+          return { outcome: 'pending', confidence: 'high', reasoning: `API-Sports: ${game.status}` }
+        }
+        if (game.status === 'final') {
+          confirmedScoreLine = `[FINAL] ${game.home} ${game.homeScore} - ${game.awayScore} ${game.away}`
+        }
+      }
+    }
+  }
+
+  const confirmedScoreSection = confirmedScoreLine
+    ? `\n\nCONFIRMED SCORE (from API-Sports — treat as ground truth):\n${confirmedScoreLine}`
+    : ''
+
+  const system = `You are checking the result of a single Australian sports bet leg. Search the web only if needed and return ONLY valid JSON — no markdown, no explanation.${confirmedScoreSection}
 
 JSON format: { "outcome": "won" | "lost" | "void" | "pending", "confidence": "high" | "medium" | "low", "reasoning": "brief" }
 
 Rules:
+- If a CONFIRMED SCORE is provided above, use it as ground truth for the final result. Only web-search to resolve player props (goals, tries, disposals, etc.) that aren't in the score.
 - Search using the exact event name, player name, and date (year: ${year})
 - Player goals (AFL): search "[player] goals [teams] ${year}" on AFL.com.au or Fox Sports
-- Big Win Little Win / margin: find final score margin and check if it's in the stated range
+- Big Win Little Win / margin: use the confirmed score's margin if available, else search
 - Handicap/line: apply the handicap to the confirmed final score
 - Only use "pending" if the event has NOT happened yet
 - If the game was played, find the result and commit to won or lost
@@ -380,59 +311,58 @@ async function checkBetResult(apiKey, apiSportsKey, bet) {
     : []
 
   // ── Step 1: Fetch confirmed scores from API-Sports where available ──────────
-  // Collect unique sport+date combos to minimise API calls
+  // Build unique sport+date combos so we only call API-Sports once per (sport,date).
   const sportDateMap = new Map() // key: "SPORT:YYYY-MM-DD" → { sport, date }
   if (isMulti) {
     for (const leg of legs) {
-      const sport = leg.sport
       const date = leg.event_time ? leg.event_time.split('T')[0] : bet.date
-      if (sport && API_SPORTS_ENDPOINTS[sport]) {
-        sportDateMap.set(`${sport}:${date}`, { sport, date })
+      if (leg.sport && isSportSupported(leg.sport)) {
+        sportDateMap.set(`${leg.sport}:${date}`, { sport: leg.sport, date })
       }
     }
   } else {
-    const sport = bet.sport
     const date = bet.event_time ? bet.event_time.split('T')[0] : bet.date
-    if (sport && API_SPORTS_ENDPOINTS[sport]) {
-      sportDateMap.set(`${sport}:${date}`, { sport, date })
+    if (bet.sport && isSportSupported(bet.sport)) {
+      sportDateMap.set(`${bet.sport}:${date}`, { sport: bet.sport, date })
     }
   }
 
-  // Fetch scores (parallel where possible)
-  const scoreResults = await Promise.all(
+  // Fetch in parallel
+  const gameResults = await Promise.all(
     [...sportDateMap.entries()].map(async ([key, { sport, date }]) => {
-      const scores = await fetchApiSportsGames(sport, date, apiSportsKey)
-      return [key, scores]
+      const games = await fetchGames(sport, date, apiSportsKey)
+      return [key, games]
     })
   )
-  const scoresMap = new Map(scoreResults)
+  const gamesMap = new Map(gameResults) // key → NormalisedGame[]
 
   // Build the confirmed scores context block for Claude
-  const confirmedScores = [...scoresMap.entries()]
-    .filter(([, v]) => v)
-    .map(([k, v]) => {
+  const confirmedScores = [...gamesMap.entries()]
+    .filter(([, games]) => Array.isArray(games) && games.length > 0)
+    .map(([k, games]) => {
       const [sport, date] = k.split(':')
-      return `${sport} games on ${date}:\n${v}`
+      const block = formatGamesForContext(games)
+      return block ? `${sport} games on ${date}:\n${block}` : null
     })
+    .filter(Boolean)
     .join('\n\n')
 
   // ── Short-circuit: if API-Sports confirms every relevant game is still
-  // [UPCOMING] or [IN PROGRESS], we cannot resolve it yet — skip Claude entirely.
-  // This saves a full web-search loop whenever the cron runs before kick-off or
-  // mid-game. Requires POSITIVE identification — unknowns fall through to Claude.
+  // upcoming or in-progress, skip Claude entirely. Requires POSITIVE identification.
   const checkableLegs = isMulti
     ? legs
     : [{ sport: bet.sport, event: bet.event, event_time: bet.event_time }]
   const allCovered = checkableLegs.length > 0 && checkableLegs.every(
-    (l) => l.sport && API_SPORTS_ENDPOINTS[l.sport]
+    (l) => l.sport && isSportSupported(l.sport)
   )
-  if (allCovered && scoresMap.size > 0) {
+  if (allCovered && gamesMap.size > 0) {
     const allUnfinished = checkableLegs.every((l) => {
       const date = l.event_time ? l.event_time.split('T')[0] : bet.date
-      const scoreText = scoresMap.get(`${l.sport}:${date}`)
-      if (!scoreText) return false // no data for this sport/date → let Claude try
-      const status = apiSportsGameStatus(scoreText, extractTeams(l.event))
-      return status === 'upcoming' || status === 'in_progress'
+      const games = gamesMap.get(`${l.sport}:${date}`)
+      if (!games || games.length === 0) return false
+      const game = findGame(games, extractTeams(l.event))
+      if (!game) return false
+      return game.status === 'upcoming' || game.status === 'in_progress'
     })
     if (allUnfinished) {
       console.log(`Short-circuit: API-Sports shows all games upcoming/in-progress — skipping Claude`)

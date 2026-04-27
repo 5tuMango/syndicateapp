@@ -2,6 +2,7 @@
 // POST /api/check-weekly-results  { multiId: 'uuid' }
 
 import { logUsage } from './_lib/logUsage.js'
+import { isSportSupported, fetchGames, extractTeams, findGame } from './_lib/apiSports.js'
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
 // Haiku 4.5 for web search — ~3× cheaper than Sonnet. Revert to 'claude-sonnet-4-6' if tool use regresses.
@@ -16,6 +17,7 @@ export default async function handler(req, res) {
   const SUPABASE_URL = process.env.VITE_SUPABASE_URL
   const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY
   const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY
+  const API_SPORTS_KEY = process.env.API_SPORTS_KEY
 
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured.' })
   if (!ANTHROPIC_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured.' })
@@ -81,7 +83,7 @@ export default async function handler(req, res) {
         event_time: leg.event_time || null,
       }
 
-      const result = await checkSingleLeg(ANTHROPIC_KEY, legForCheck, betDate)
+      const result = await checkSingleLeg(ANTHROPIC_KEY, API_SPORTS_KEY, legForCheck, betDate)
       console.log(`  Leg [${legForCheck.selection}] → ${result.outcome} (${result.reasoning || ''})`)
 
       if (result.outcome === 'void') {
@@ -129,7 +131,7 @@ function deriveOutcome(legs) {
   return 'won'
 }
 
-async function checkSingleLeg(apiKey, leg, betDate) {
+async function checkSingleLeg(apiKey, apiSportsKey, leg, betDate) {
   let date = leg.event_time ? leg.event_time.split('T')[0] : betDate
   if (date && betDate) {
     const eventYear = parseInt(date.split('-')[0])
@@ -140,14 +142,38 @@ async function checkSingleLeg(apiKey, leg, betDate) {
   }
   const year = date ? date.split('-')[0] : new Date().getFullYear()
 
-  const system = `You are checking the result of a single Australian sports bet leg. Search the web and return ONLY valid JSON — no markdown, no explanation.
+  // ── Fetch confirmed score from API-Sports (if sport supported) ──────────────
+  let confirmedScoreLine = null
+  if (apiSportsKey && isSportSupported(leg.sport)) {
+    const games = await fetchGames(leg.sport, date, apiSportsKey)
+    if (Array.isArray(games) && games.length > 0) {
+      const teams = extractTeams(leg.event)
+      const game = findGame(games, teams)
+      if (game) {
+        if (game.status === 'upcoming' || game.status === 'in_progress') {
+          console.log(`  Leg [${leg.selection}] → API-Sports: game not finished (${game.status}) — skipping Claude`)
+          return { outcome: 'pending', confidence: 'high', reasoning: `API-Sports: ${game.status}` }
+        }
+        if (game.status === 'final') {
+          confirmedScoreLine = `[FINAL] ${game.home} ${game.homeScore} - ${game.awayScore} ${game.away}`
+        }
+      }
+    }
+  }
+
+  const confirmedScoreSection = confirmedScoreLine
+    ? `\n\nCONFIRMED SCORE (from API-Sports — treat as ground truth):\n${confirmedScoreLine}`
+    : ''
+
+  const system = `You are checking the result of a single Australian sports bet leg. Search the web only if needed and return ONLY valid JSON — no markdown, no explanation.${confirmedScoreSection}
 
 JSON format: { "outcome": "won" | "lost" | "void" | "pending", "confidence": "high" | "medium" | "low", "reasoning": "brief" }
 
 Rules:
+- If a CONFIRMED SCORE is provided above, use it as ground truth. Only web-search to resolve player props.
 - Search using the exact event name, player name, and date (year: ${year})
 - Player goals (AFL): search "[player] goals [teams] ${year}" on AFL.com.au or Fox Sports
-- Big Win Little Win / margin: find final score margin and check if it's in the stated range
+- Big Win Little Win / margin: use the confirmed score's margin if available, else search
 - Handicap/line: apply the handicap to the confirmed final score
 - Only use "pending" if the event has NOT happened yet
 - If the game was played, find the result and commit to won or lost
