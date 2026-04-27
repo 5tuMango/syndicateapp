@@ -3,7 +3,7 @@
 // Docs: https://api.squiggle.com.au
 
 const BASE = 'https://api.squiggle.com.au/'
-const UA = 'Syndicate hobby bet tracker — contact via github'
+const UA = 'Syndicate hobby bet tracker - contact via github'
 
 // Fetch games for a given year, optionally filtered to a specific round.
 // Returns an array of normalised game objects ready for sport_games upsert.
