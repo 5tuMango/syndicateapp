@@ -80,6 +80,7 @@ export default async function handler(req, res) {
 
     const results = []
     const nowMs = Date.now()
+    const isCron = req.method === 'GET'
     // Stored event_time strings are naive "YYYY-MM-DDTHH:MM" meant as AEST.
     // Parse with an explicit +10:00 offset before comparing to now.
     const isFuture = (eventTime) => {
@@ -87,6 +88,16 @@ export default async function handler(req, res) {
       const s = eventTime.substring(0, 16)
       const ms = Date.parse(s + ':00+10:00')
       return !isNaN(ms) && ms > nowMs
+    }
+    // Cron only: stop retrying after 9h past kickoff — flag for manual review instead.
+    // First check window starts at kickoff + 3h.
+    const isOutsideWindow = (eventTime) => {
+      if (!isCron || !eventTime) return false
+      const s = eventTime.substring(0, 16)
+      const ms = Date.parse(s + ':00+10:00')
+      if (isNaN(ms)) return false
+      const elapsed = nowMs - ms
+      return elapsed < 3 * 60 * 60 * 1000 || elapsed > 9 * 60 * 60 * 1000
     }
 
     for (const bet of bets) {
@@ -96,6 +107,11 @@ export default async function handler(req, res) {
         if (bet.bet_type !== 'multi' && isFuture(bet.event_time)) {
           console.log(`Bet [${bet.event}] → skipped (future event: ${bet.event_time})`)
           results.push({ betId: bet.id, outcome: 'pending', skipped: 'future event' })
+          continue
+        }
+        if (bet.bet_type !== 'multi' && isOutsideWindow(bet.event_time)) {
+          console.log(`Bet [${bet.event}] → skipped by cron (outside 3-9h window: ${bet.event_time})`)
+          results.push({ betId: bet.id, outcome: 'pending', skipped: 'outside window — check manually' })
           continue
         }
 
@@ -111,6 +127,10 @@ export default async function handler(req, res) {
             // not just dates, so a 7:40pm game isn't checked at 9am the same day.
             if (isFuture(leg.event_time)) {
               console.log(`  Leg [${leg.selection || leg.description}] → skipped (future event: ${leg.event_time})`)
+              continue
+            }
+            if (isOutsideWindow(leg.event_time)) {
+              console.log(`  Leg [${leg.selection || leg.description}] → skipped by cron (outside 3-9h window)`)
               continue
             }
             const result = await checkSingleLeg(ANTHROPIC_KEY, API_SPORTS_KEY, leg, bet.date, SUPABASE_URL, SUPABASE_KEY)
