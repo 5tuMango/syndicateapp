@@ -36,27 +36,6 @@ export function normaliseTeamName(name) {
   return TEAM_NORMALISE[name] || name
 }
 
-// Returns { id, name } for the current AFL season
-export async function getCurrentSeason() {
-  const res = await fetch(`${MATCHES_BASE}/compseasons?pageSize=5`)
-  if (!res.ok) throw new Error(`AFL compseasons HTTP ${res.status}`)
-  const data = await res.json()
-  const seasons = data.compSeasons || []
-  const year = new Date().getFullYear()
-  const current = seasons.find(s => s.name?.includes(String(year))) || seasons[0]
-  if (!current) throw new Error('Could not find current AFL season')
-  return current
-}
-
-// Returns rounds for the season — sorted by roundNumber ascending
-export async function getRounds(compSeasonId) {
-  const url = `${MATCHES_BASE}/rounds?pageSize=30&competitionId=${COMPETITION_ID}&compSeasonId=${compSeasonId}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`AFL rounds HTTP ${res.status}`)
-  const data = await res.json()
-  return (data.rounds || []).sort((a, b) => a.roundNumber - b.roundNumber)
-}
-
 // Returns matches for a specific round
 export async function fetchMatchesForRound(compSeasonId, roundNumber) {
   const url = `${MATCHES_BASE}/matches?pageSize=300&competitionId=${COMPETITION_ID}&compSeasonId=${compSeasonId}&roundNumber=${roundNumber}`

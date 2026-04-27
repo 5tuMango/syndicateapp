@@ -7,16 +7,24 @@
 // links them to sport_games rows, and upserts into sport_player_stats.
 
 import {
-  getCurrentSeason,
-  getRounds,
   fetchMatchesForRound,
   fetchPlayerStats,
   normalisePlayerStats,
   normaliseTeamName,
 } from './_lib/sources/aflMatchCentre.js'
 
+// 2026 AFL season — update compSeasonId at the start of each new season
+const COMP_SEASON_ID = 85
+// Round 1 of 2026 season started ~14 Mar 2026 (UTC)
+const SEASON_START_MS = Date.parse('2026-03-14T00:00:00Z')
+
 // Only fetch stats for matches that ended at least this many ms ago
 const MIN_AGE_MS = 3 * 60 * 60 * 1000 // 3 hours
+
+function estimateCurrentRound() {
+  const weeksSinceStart = Math.floor((Date.now() - SEASON_START_MS) / (7 * 24 * 60 * 60 * 1000))
+  return Math.max(1, Math.min(weeksSinceStart + 1, 28))
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -42,25 +50,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    const season = await getCurrentSeason()
-    const rounds = await getRounds(season.id)
+    const currentRound = estimateCurrentRound()
+    // Check current round and the previous two — catches any games missed on first run
+    const roundsToCheck = [currentRound - 2, currentRound - 1, currentRound].filter(r => r >= 1)
 
-    // Find rounds that have games within the past 7 days
     const nowMs = Date.now()
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
-    const recentRounds = rounds.filter(r => {
-      const end = r.utcEndTime ? Date.parse(r.utcEndTime) : 0
-      return end > nowMs - sevenDaysMs && end < nowMs + sevenDaysMs
-    })
-
-    if (recentRounds.length === 0) {
-      return res.status(200).json({ message: 'No recent AFL rounds found', season: season.name })
-    }
-
     const summary = []
 
-    for (const round of recentRounds) {
-      const matches = await fetchMatchesForRound(season.id, round.roundNumber)
+    for (const roundNumber of roundsToCheck) {
+      let matches
+      try {
+        matches = await fetchMatchesForRound(COMP_SEASON_ID, roundNumber)
+      } catch (err) {
+        console.log(`  Round ${roundNumber} fetch failed: ${err.message}`)
+        continue
+      }
 
       // Only process matches that started at least MIN_AGE_MS ago
       const completed = matches.filter(m => {
@@ -76,37 +80,35 @@ export default async function handler(req, res) {
         const away = normaliseTeamName(awayRaw)
         const gameDate = match.utcStartTime ? match.utcStartTime.substring(0, 10) : null
 
-        // Find matching game in sport_games
         const gameId = await findGameId(home, away, gameDate, SUPABASE_URL, SUPABASE_KEY)
         if (!gameId) {
           console.log(`  No sport_games match for ${home} v ${away} on ${gameDate}`)
-          summary.push({ match: `${home} v ${away}`, status: 'no_game_found' })
+          summary.push({ match: `${home} v ${away}`, round: roundNumber, status: 'no_game_found' })
           continue
         }
 
-        // Fetch and upsert player stats
         let statsData
         try {
           statsData = await fetchPlayerStats(matchId)
         } catch (err) {
           console.log(`  Stats fetch failed for ${matchId}: ${err.message}`)
-          summary.push({ match: `${home} v ${away}`, status: 'stats_fetch_failed' })
+          summary.push({ match: `${home} v ${away}`, round: roundNumber, status: 'stats_fetch_failed' })
           continue
         }
 
         const rows = normalisePlayerStats(statsData, gameId, home, away)
         if (rows.length === 0) {
-          summary.push({ match: `${home} v ${away}`, status: 'no_stats_yet' })
+          summary.push({ match: `${home} v ${away}`, round: roundNumber, status: 'no_stats_yet' })
           continue
         }
 
         await upsertPlayerStats(rows, SUPABASE_URL, SUPABASE_KEY)
-        console.log(`  Upserted ${rows.length} player stats for ${home} v ${away}`)
-        summary.push({ match: `${home} v ${away}`, players: rows.length, status: 'ok' })
+        console.log(`  Upserted ${rows.length} player stats for ${home} v ${away} (round ${roundNumber})`)
+        summary.push({ match: `${home} v ${away}`, round: roundNumber, players: rows.length, status: 'ok' })
       }
     }
 
-    return res.status(200).json({ season: season.name, rounds: recentRounds.map(r => r.roundNumber), summary })
+    return res.status(200).json({ compSeasonId: COMP_SEASON_ID, roundsChecked: roundsToCheck, summary })
 
   } catch (err) {
     console.error('collect-afl-stats error:', err.message)
