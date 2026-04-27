@@ -45,14 +45,20 @@ export async function fetchMatchesForRound(compSeasonId, roundNumber) {
   return data.matches || []
 }
 
-// Returns raw player stats response for a match
+// Returns raw player stats response for a match.
+// Requires AFL_MIS_TOKEN env var — copy x-media-mis-token from DevTools on afl.com.au.
+// Token appears to be a site-wide API key (not user-session); update if you start getting 401s.
 export async function fetchPlayerStats(matchProviderId) {
+  const token = process.env.AFL_MIS_TOKEN
+  if (!token) throw new Error('AFL_MIS_TOKEN env var not set')
+
   const url = `${STATS_BASE}/playerStats/match/${matchProviderId}`
   const res = await fetch(url, {
     headers: {
+      'x-media-mis-token': token,
       'Origin': 'https://www.afl.com.au',
       'Referer': 'https://www.afl.com.au/',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
     },
   })
   if (!res.ok) {
