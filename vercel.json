@@ -8,6 +8,10 @@
     {
       "path": "/api/collect-afl-games",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/collect-afl-stats",
+      "schedule": "0 15 * * *"
     }
   ],
   "functions": {

@@ -12,23 +12,45 @@ import { resolve as resolveH2H } from './resolvers/h2h.js'
 import { resolve as resolveHandicap } from './resolvers/handicap.js'
 import { resolve as resolveTotal } from './resolvers/total.js'
 import { resolve as resolveMargin } from './resolvers/margin.js'
+import { resolve as resolvePlayerStat } from './resolvers/playerStat.js'
+import { resolve as resolveGoalScorer } from './resolvers/goalScorer.js'
 
 const MATCH_RESOLVERS = { h2h: resolveH2H, handicap: resolveHandicap, total: resolveTotal, margin: resolveMargin }
+const PLAYER_RESOLVERS = { playerStat: resolvePlayerStat, goalScorer: resolveGoalScorer }
 
 export async function resolveLeg(leg, betDate, supabaseUrl, supabaseKey) {
   if (leg.sport !== 'AFL') return { resolved: false }
 
   const marketType = classifyMarket(leg)
-  if (!marketType || !(marketType in MATCH_RESOLVERS)) {
-    // Player stats, try/goal scorers — not supported yet
-    return { resolved: false }
-  }
+  if (!marketType) return { resolved: false }
 
   const game = await findGame(leg, betDate, supabaseUrl, supabaseKey)
   if (!game) return { resolved: false, reasoning: 'No matching AFL game in sport_games' }
 
-  const result = MATCH_RESOLVERS[marketType](game, leg)
-  return { ...result, resolved: true }
+  if (marketType in MATCH_RESOLVERS) {
+    const result = MATCH_RESOLVERS[marketType](game, leg)
+    return { ...result, resolved: true }
+  }
+
+  if (marketType in PLAYER_RESOLVERS) {
+    const players = await fetchPlayerStats(game.id, supabaseUrl, supabaseKey)
+    const result = PLAYER_RESOLVERS[marketType](game, leg, players)
+    return { ...result, resolved: true }
+  }
+
+  return { resolved: false }
+}
+
+// ── Player stats lookup ───────────────────────────────────────────────────────
+
+async function fetchPlayerStats(gameId, supabaseUrl, supabaseKey) {
+  const url = `${supabaseUrl}/rest/v1/sport_player_stats?game_id=eq.${gameId}&select=*`
+  const res = await fetch(url, {
+    headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+  })
+  if (!res.ok) return []
+  const rows = await res.json()
+  return Array.isArray(rows) ? rows : []
 }
 
 // ── Game lookup ───────────────────────────────────────────────────────────────
