@@ -1,10 +1,18 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import BetCard from '../components/BetCard'
 import WeeklyMultiCard from '../components/WeeklyMultiCard'
 import FilterBar from '../components/FilterBar'
+import ActiveTeamStrip from '../components/ActiveTeamStrip'
 import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor, sortBetsByActivity, betLastEventTime, isRealStake } from '../lib/utils'
 import { usePersonas } from '../hooks/usePersonas'
+import {
+  buildWeekToTeamMap,
+  detectQualifyingBets,
+  stakeThisWeekForPersona,
+  creditsConsumedByStake,
+  currentAestMondayKey,
+} from '../lib/goAgain'
 
 function calcWeeklyStats(multis) {
   const results = multis.map((m) => {
@@ -48,14 +56,16 @@ export default function Dashboard() {
   const [filters, setFilters] = useState({})
   const [unattributedFunds, setUnattributedFunds] = useState(0)
   const [teams, setTeams] = useState([])
+  const [goAgainCredits, setGoAgainCredits] = useState([])
   const [dashTab, setDashTab] = useState('active') // 'active' | 'archive'
+  const reconciledKeyRef = useRef(null) // prevents repeated reconciliation against the same data snapshot
 
   useEffect(() => {
     fetchData()
   }, [])
 
   async function fetchData() {
-    const [betsRes, membersRes, weeklyRes, kittyRes, teamsRes] = await Promise.all([
+    const [betsRes, membersRes, weeklyRes, kittyRes, teamsRes, creditsRes] = await Promise.all([
       supabase
         .from('bets')
         .select('*, profiles(id, username, full_name), bet_legs(*)')
@@ -65,12 +75,14 @@ export default function Dashboard() {
       supabase.from('weekly_multis').select('*, weekly_multi_legs(*, profiles(id, full_name, username))'),
       supabase.from('kitty_settings').select('unattributed_funds').eq('id', 1).maybeSingle(),
       supabase.from('teams').select('*').order('created_at'),
+      supabase.from('go_again_credits').select('*').order('earned_at'),
     ])
     setBets(betsRes.data || [])
     setMembers(membersRes.data || [])
     setWeeklyMultis(weeklyRes.data || [])
     setUnattributedFunds(parseFloat(kittyRes.data?.unattributed_funds || 0))
     setTeams(teamsRes.data || [])
+    setGoAgainCredits(creditsRes.data || [])
     setLoading(false)
   }
 
@@ -113,6 +125,103 @@ export default function Dashboard() {
     const upcomingWeekNum = completedWeeks + 1
     return { team: teams[upcomingWeekNum % 2], weekNum: upcomingWeekNum }
   }, [teams, weeklyMultis])
+
+  // ── Go-Again credit detection + usage marking ────────────────────────────
+  // Runs once per fetched data snapshot. Inserts credits for any newly-qualifying
+  // winning bet (≥ $250 winnings during the punter's active week) and marks
+  // existing credits used when the persona's current-week stake total exceeds
+  // their base $50 allowance (each $50 over = 1 credit consumed, FIFO).
+  useEffect(() => {
+    if (loading) return
+    if (!teams.length || !personaList.length) return
+    const snapshotKey = `${bets.length}|${weeklyMultis.length}|${goAgainCredits.length}|${personaList.length}`
+    if (reconciledKeyRef.current === snapshotKey) return
+    reconciledKeyRef.current = snapshotKey
+
+    const weekToTeam = buildWeekToTeamMap(weeklyMultis, teams)
+    let needsRefetch = false
+
+    ;(async () => {
+      // 1. Insert credits for qualifying bets that don't already have one.
+      const existingBetIds = new Set(goAgainCredits.map((c) => c.source_bet_id))
+      const qualifying = detectQualifyingBets(bets, personaList, weekToTeam)
+        .filter((q) => !existingBetIds.has(q.source_bet_id))
+
+      if (qualifying.length > 0) {
+        const { error } = await supabase
+          .from('go_again_credits')
+          .upsert(qualifying, { onConflict: 'source_bet_id', ignoreDuplicates: true })
+        if (!error) needsRefetch = true
+        else console.warn('go_again_credits insert failed:', error.message)
+      }
+
+      // 2. Mark credits as used based on current-week stake totals.
+      const currentWeek = currentAestMondayKey()
+      const updates = []
+      // We need a fresh view of credits if we just inserted; use union of state + new.
+      const allCredits = [
+        ...goAgainCredits,
+        ...qualifying.map((q) => ({ ...q, used_at: null, used_in_week_start: null })),
+      ]
+      const byPersona = new Map()
+      for (const c of allCredits) {
+        if (!byPersona.has(c.persona_id)) byPersona.set(c.persona_id, [])
+        byPersona.get(c.persona_id).push(c)
+      }
+
+      for (const [personaId, credits] of byPersona.entries()) {
+        const persona = personaList.find((p) => p.id === personaId)
+        if (!persona) continue
+        const staked = stakeThisWeekForPersona(bets, persona, currentWeek)
+        const shouldBeConsumed = creditsConsumedByStake(staked)
+        const sortedCredits = [...credits].sort((a, b) =>
+          (a.earned_at || '').localeCompare(b.earned_at || '')
+        )
+        const currentlyUsedIds = new Set(sortedCredits.filter((c) => c.used_at).map((c) => c.id))
+        const unused = sortedCredits.filter((c) => !c.used_at)
+        const toConsume = Math.max(0, shouldBeConsumed - currentlyUsedIds.size)
+
+        for (let i = 0; i < toConsume && i < unused.length; i++) {
+          const c = unused[i]
+          if (!c.id) continue // not yet persisted (just-inserted credit, will reconcile next pass)
+          updates.push({
+            id: c.id,
+            used_at: new Date().toISOString(),
+            used_in_week_start: currentWeek,
+          })
+        }
+      }
+
+      if (updates.length > 0) {
+        await Promise.all(updates.map((u) =>
+          supabase
+            .from('go_again_credits')
+            .update({ used_at: u.used_at, used_in_week_start: u.used_in_week_start })
+            .eq('id', u.id)
+        ))
+        needsRefetch = true
+      }
+
+      if (needsRefetch) {
+        const { data } = await supabase.from('go_again_credits').select('*').order('earned_at')
+        setGoAgainCredits(data || [])
+        // Allow another reconciliation pass on the new credits set
+        reconciledKeyRef.current = null
+      }
+    })()
+  }, [loading, bets, weeklyMultis, teams, personaList, goAgainCredits])
+
+  // Members of the team punting this week, with their unused-credit count.
+  const activeTeamMembers = useMemo(() => {
+    if (!thisWeekendTeam?.team) return []
+    const teamId = thisWeekendTeam.team.id
+    const onTeam = personaList.filter((p) => p.team_id === teamId)
+    return onTeam.map((persona) => {
+      const personaCredits = goAgainCredits.filter((c) => c.persona_id === persona.id)
+      const unusedCredits = personaCredits.filter((c) => !c.used_at).length
+      return { persona, unusedCredits }
+    })
+  }, [thisWeekendTeam, personaList, goAgainCredits])
 
   // Confirmed earned bet returns (terms evaluated to true)
   const availableBetReturns = useMemo(() => {
@@ -274,12 +383,11 @@ export default function Dashboard() {
   return (
     <div className="space-y-5">
       {thisWeekendTeam && (
-        <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-2.5">
-          <span className="text-green-400 text-sm">🏉</span>
-          <span className="text-slate-400 text-sm">Team betting this week:</span>
-          <span className="text-green-400 font-semibold text-sm">{thisWeekendTeam.team?.name}</span>
-          <span className="text-slate-600 text-xs ml-auto">Week {thisWeekendTeam.weekNum}</span>
-        </div>
+        <ActiveTeamStrip
+          team={thisWeekendTeam.team}
+          weekNum={thisWeekendTeam.weekNum}
+          members={activeTeamMembers}
+        />
       )}
 
       <div>
