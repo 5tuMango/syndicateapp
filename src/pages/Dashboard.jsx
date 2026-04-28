@@ -538,8 +538,8 @@ export default function Dashboard() {
           </div>
           {/* Mini leaderboard rail — top 8 by winnings */}
           {kittyMiniLeaderboard.length > 0 && (
-            <div className="shrink-0 flex flex-col justify-between border-l border-slate-700/60 pl-2.5 -my-1">
-              <p className="text-[9px] text-slate-500 uppercase tracking-wider mb-0.5 text-center">Top</p>
+            <div className="shrink-0 flex flex-col border-l border-slate-700/60 pl-2.5 -my-1">
+              <p className="text-[9px] text-slate-500 uppercase tracking-wider mb-1.5 text-center">Stand</p>
               <div className="flex flex-col gap-2">
                 {kittyMiniLeaderboard.map((p, i) => (
                   <div
