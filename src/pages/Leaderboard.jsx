@@ -366,12 +366,10 @@ export default function Leaderboard() {
                       <span className="text-xs text-slate-500">{team.memberCount} members</span>
                     </div>
                     <div className="text-right">
-                      <div className={`text-lg font-bold ${activeSortOpt.color(team)}`}>
-                        {activeSortOpt.format(team)}
+                      <div className="text-lg font-bold text-green-400">
+                        ${team.winnings.toFixed(2)}
                       </div>
-                      {sortKey !== 'winnings' && (
-                        <div className="text-xs text-slate-500">Winnings ${team.winnings.toFixed(2)}</div>
-                      )}
+                      <div className="text-xs text-slate-500">Total Winnings</div>
                     </div>
                   </div>
                   <div className="flex gap-4 text-xs flex-wrap">
@@ -380,7 +378,6 @@ export default function Leaderboard() {
                     <span className="text-red-400">{team.lost}L</span>
                     {team.pending > 0 && <span className="text-yellow-400">{team.pending}P</span>}
                     {team.voided > 0 && <span className="text-slate-500">{team.voided}V</span>}
-                    <span className="text-slate-500">Win rate <span className="text-white font-medium">{team.winRate}%</span></span>
                     <span className={profitLossColor(team.pl)}>P&L {formatCurrency(team.pl)}</span>
                   </div>
                   {(() => {
