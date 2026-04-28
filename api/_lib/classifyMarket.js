@@ -9,13 +9,17 @@ export function classifyMarket(leg) {
   const combined = `${desc} ${sel}`
 
   if (/\bhead.to.head\b|\bh2h\b|\bmatch winner\b|\bto win\b/.test(combined)) return 'h2h'
-  if (/\bhandicap\b|\bline bet\b/.test(combined)) return 'handicap'
+  // "handicap", "line bet", "pick your own line", bare "line" description, or selection has (+/-N.N)
+  if (/\bhandicap\b|\bline bet\b|\bpick.{0,15}line\b/.test(combined) || /\([+-]\d+\.?\d*\)/.test(combined)) return 'handicap'
   if (/\btotal points\b|\btotal runs\b|\bover\b|\bunder\b/.test(combined)) return 'total'
   if (/\bbig win\b|\blittle win\b|\bwinning margin\b|\bmargin\b/.test(combined)) return 'margin'
+  if (/\bhalf.?time.{0,10}full.?time\b|\bht\/ft\b|\bhtft\b/.test(combined)) return 'htft'
+  if (/\bquarter\b|\bq[1-4]\b|\b[1-4](st|nd|rd|th) quarter\b/.test(combined)) return 'quarterWinner'
 
   // Player props — goal/try scorers checked before generic playerStat
-  if (/\bgoal.?scorer\b|\banytime goal\b|\bfirst goal\b/.test(combined)) return 'goalScorer'
-  if (/\btry.?scorer\b|\banytime try\b|\bfirst try\b/.test(combined)) return 'tryScorer'
+  // "Player Goals", "2+ Goals", "Anytime Goal Scorer", "First Goal Scorer"
+  if (/\bgoal.?scorer\b|\banytime goal\b|\bfirst goal\b|\bplayer goals?\b|\b\d\+?\s*goals?\b/.test(combined)) return 'goalScorer'
+  if (/\btry.?scorer\b|\banytime try\b|\bfirst try\b|\bplayer tr(y|ies)\b|\b\d\+?\s*tr(y|ies)\b/.test(combined)) return 'tryScorer'
 
   if (/\bdisposals?\b|\bkicks?\b|\bhandballs?\b|\bmarks?\b|\btackles?\b|\bhitouts?\b|\bclearances?\b|\binside 50\b|\bcontested\b|\bfantasy\b/.test(combined)) return 'playerStat'
   if (/\bruns?\b|\brun metres\b|\bline breaks?\b|\btry assists?\b|\boffloads?\b/.test(combined)) return 'playerStat'

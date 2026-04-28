@@ -8,8 +8,8 @@ function teamMatch(name, teamName) {
 }
 
 function parseHandicap(text) {
-  // "TeamName +/-N.N" — handicap value at the end
-  const m = text.match(/^(.+?)\s*([+-]\s*\d+\.?\d*)\s*(?:pts?\.?)?$/i)
+  // "TeamName +/-N.N" or "TeamName (+/-N.N)" — handicap value at the end, optionally in parens
+  const m = text.match(/^(.+?)\s*\(?\s*([+-]\s*\d+\.?\d*)\s*\)?\s*(?:pts?\.?)?$/i)
   if (!m) return null
   return {
     team: m[1].trim(),

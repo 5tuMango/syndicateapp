@@ -37,10 +37,11 @@ export default async function handler(req, res) {
     const year = new Date().getFullYear()
     const allGames = await fetchSquiggleGames(year)
 
-    // Filter to games within ±WINDOW_DAYS of today
+    // ?all=1 bypasses the date filter — use for one-off backfill runs
+    const skipFilter = req.query.all === '1'
     const nowMs = Date.now()
     const windowMs = WINDOW_DAYS * 24 * 60 * 60 * 1000
-    const relevant = allGames.filter(g => {
+    const relevant = skipFilter ? allGames.filter(g => g.game_date && g.home && g.away) : allGames.filter(g => {
       if (!g.game_date) return false
       const t = Date.parse(g.game_date)
       return !isNaN(t) && Math.abs(t - nowMs) <= windowMs

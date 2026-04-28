@@ -6,19 +6,30 @@
 
 import { matchPlayer } from '../nameMatch.js'
 
-// Maps market keywords to stat column names
+// Maps market keywords to stat field names.
+// AFL stats are stored as top-level columns; NRL stats are in the raw jsonb field.
+// The resolver checks player[field] first, then player.raw?.[field] as fallback.
 const STAT_MAP = {
+  // AFL
   disposal: 'disposals', disposals: 'disposals',
-  kick: 'kicks', kicks: 'kicks',
   handball: 'handballs', handballs: 'handballs',
   mark: 'marks', marks: 'marks',
-  tackle: 'tackles', tackles: 'tackles',
   hitout: 'hitouts', hitouts: 'hitouts',
   clearance: 'clearances', clearances: 'clearances',
   'inside 50': 'inside_50s', 'inside50': 'inside_50s',
   'goal assist': 'goal_assists', 'goal assists': 'goal_assists',
   'contested possession': 'contested_possessions',
+  // Shared (column exists for both)
+  kick: 'kicks', kicks: 'kicks',
+  tackle: 'tackles', tackles: 'tackles',
   fantasy: 'fantasy_points', 'dream team': 'fantasy_points',
+  // NRL (stored in raw field)
+  'run metre': 'allRunMetres', 'run metres': 'allRunMetres', 'running metre': 'allRunMetres',
+  'line break': 'lineBreaks', 'line breaks': 'lineBreaks',
+  'try assist': 'tryAssists', 'try assists': 'tryAssists',
+  offload: 'offloads', offloads: 'offloads',
+  'missed tackle': 'missedTackles', 'missed tackles': 'missedTackles',
+  'kick metre': 'kickMetres', 'kick metres': 'kickMetres',
 }
 
 function parseLeg(leg) {
@@ -74,7 +85,8 @@ export function resolve(game, leg, players) {
   }
 
   const player = match.player
-  const actual = player[parsed.statCol] ?? 0
+  // Check top-level column first (AFL), then raw jsonb field (NRL)
+  const actual = player[parsed.statCol] ?? player.raw?.[parsed.statCol] ?? 0
   const won = actual >= parsed.threshold
 
   return {

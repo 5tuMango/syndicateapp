@@ -12,6 +12,14 @@
     {
       "path": "/api/collect-afl-stats",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/collect-nrl-games",
+      "schedule": "30 14 * * *"
+    },
+    {
+      "path": "/api/collect-nrl-stats",
+      "schedule": "30 15 * * *"
     }
   ],
   "functions": {

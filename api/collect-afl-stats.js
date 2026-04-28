@@ -51,11 +51,16 @@ export default async function handler(req, res) {
 
   try {
     const currentRound = estimateCurrentRound()
-    // Check current round and the previous two — catches any games missed on first run
-    const roundsToCheck = [currentRound - 2, currentRound - 1, currentRound].filter(r => r >= 1)
+    // ?from=N&to=M overrides round range for backfill runs
+    const fromRound = req.query.from ? parseInt(req.query.from) : currentRound - 2
+    const toRound = req.query.to ? parseInt(req.query.to) : currentRound
+    const roundsToCheck = []
+    for (let r = Math.max(1, fromRound); r <= Math.min(toRound, 28); r++) roundsToCheck.push(r)
 
     const nowMs = Date.now()
     const summary = []
+    let tokenFailures = 0
+    let completedMatchesAttempted = 0
 
     for (const roundNumber of roundsToCheck) {
       let matches
@@ -87,11 +92,15 @@ export default async function handler(req, res) {
           continue
         }
 
+        completedMatchesAttempted++
         let statsData
         try {
           statsData = await fetchPlayerStats(matchId)
         } catch (err) {
           console.log(`  Stats fetch failed for ${matchId}: ${err.message}`)
+          if (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')) {
+            tokenFailures++
+          }
           summary.push({ match: `${home} v ${away}`, round: roundNumber, status: 'stats_fetch_failed', error: err.message })
           continue
         }
@@ -106,6 +115,18 @@ export default async function handler(req, res) {
         console.log(`  Upserted ${rows.length} player stats for ${home} v ${away} (round ${roundNumber})`)
         summary.push({ match: `${home} v ${away}`, round: roundNumber, players: rows.length, status: 'ok' })
       }
+    }
+
+    // If every completed match failed with a 401, the token has expired
+    if (completedMatchesAttempted > 0 && tokenFailures === completedMatchesAttempted) {
+      console.error('AFL_MIS_TOKEN appears expired — all stats requests returned 401')
+      await writeAlert('afl_token_expired', 'AFL stats token (AFL_MIS_TOKEN) has expired. Grab a fresh token from DevTools on afl.com.au and update the Vercel environment variable.', SUPABASE_URL, SUPABASE_KEY)
+      return res.status(500).json({
+        error: 'AFL_MIS_TOKEN expired — refresh the token in Vercel environment variables',
+        compSeasonId: COMP_SEASON_ID,
+        roundsChecked: roundsToCheck,
+        summary,
+      })
     }
 
     return res.status(200).json({ compSeasonId: COMP_SEASON_ID, roundsChecked: roundsToCheck, summary })
@@ -136,6 +157,23 @@ async function findGameId(home, away, gameDate, supabaseUrl, supabaseKey) {
     return (h.includes(qh) || qh.includes(h)) && (a.includes(qa) || qa.includes(a))
   })
   return match?.id || null
+}
+
+async function writeAlert(type, message, supabaseUrl, supabaseKey) {
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/system_alerts`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({ type, message }),
+    })
+  } catch (err) {
+    console.error('Failed to write system alert:', err.message)
+  }
 }
 
 async function upsertPlayerStats(rows, supabaseUrl, supabaseKey) {

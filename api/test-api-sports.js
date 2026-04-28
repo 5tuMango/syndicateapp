@@ -1,8 +1,9 @@
-// Diagnostic endpoint for the API-Sports integration.
+// Diagnostic endpoint for API-Sports + in-house resolver.
 // Usage:
-//   GET /api/test-api-sports                          → health check (key set? all sports reachable?)
-//   GET /api/test-api-sports?sport=AFL&date=2026-04-25 → game list for that sport/date
-// Admin-only gate via ADMIN_TEST_SECRET (set this env var and pass ?key=<secret>).
+//   GET  /api/test-api-sports                           → health check (key set? all sports reachable?)
+//   GET  /api/test-api-sports?sport=AFL&date=2026-04-25 → game list for that sport/date
+//   POST /api/test-api-sports                           → run bet legs through in-house resolver
+// Admin-only gate via ADMIN_TEST_SECRET header or ?key=<secret>.
 
 import {
   isSportSupported,
@@ -10,6 +11,8 @@ import {
   fetchGames,
   formatGamesForContext,
 } from './_lib/apiSports.js'
+import { classifyMarket } from './_lib/classifyMarket.js'
+import { resolveLeg } from './_lib/resolveLeg.js'
 
 // Per-sport status probe URL — uses /status when available so we hit the cheapest
 // endpoint that still confirms subscription + returns request quota info.
@@ -24,14 +27,55 @@ const STATUS_URLS = {
 }
 
 export default async function handler(req, res) {
+  const adminSecret = process.env.ADMIN_TEST_SECRET
+  const key = req.headers['x-admin-secret'] || req.query.key || ''
+  if (adminSecret && key !== adminSecret) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  // ── POST mode: run bet legs through the in-house resolver ──────────────────
+  if (req.method === 'POST') {
+    const SUPABASE_URL = process.env.VITE_SUPABASE_URL
+    const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      return res.status(500).json({ error: 'Supabase env vars not configured' })
+    }
+
+    const legs = Array.isArray(req.body) ? req.body : [req.body]
+    const results = await Promise.all(legs.map(async leg => {
+      const marketType = classifyMarket(leg)
+      const betDate = leg.event_time ? leg.event_time.split('T')[0] : null
+      let resolution = { resolved: false }
+      try {
+        resolution = await resolveLeg(leg, betDate, SUPABASE_URL, SUPABASE_KEY)
+      } catch (err) {
+        resolution = { resolved: false, error: err.message }
+      }
+      return {
+        id: leg.id,
+        sport: leg.sport,
+        event: leg.event,
+        description: leg.description,
+        selection: leg.selection,
+        recorded_outcome: leg.outcome,
+        market_type: marketType,
+        ...resolution,
+        match: resolution.resolved && resolution.outcome === leg.outcome ? 'PASS'
+             : resolution.resolved && resolution.outcome !== leg.outcome ? 'FAIL'
+             : 'UNRESOLVED',
+      }
+    }))
+
+    const resolved = results.filter(r => r.resolved).length
+    const passed = results.filter(r => r.match === 'PASS').length
+    const failed = results.filter(r => r.match === 'FAIL').length
+    return res.status(200).json({ total: results.length, resolved, passed, failed, unresolved: results.length - resolved, results })
+  }
+
+  // ── GET mode: API-Sports health check / game list ──────────────────────────
   const apiKey = process.env.API_SPORTS_KEY
   if (!apiKey) {
     return res.status(500).json({ error: 'API_SPORTS_KEY not set on server' })
-  }
-
-  const adminSecret = process.env.ADMIN_TEST_SECRET
-  if (adminSecret && req.query.key !== adminSecret) {
-    return res.status(401).json({ error: 'Unauthorized — pass ?key=<ADMIN_TEST_SECRET>' })
   }
 
   // ── Health-check mode: no sport param → probe each supported sport ─────────

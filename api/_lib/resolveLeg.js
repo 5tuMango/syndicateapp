@@ -4,8 +4,7 @@
 // Returns { resolved: true, outcome, reasoning } on success,
 //         { resolved: false, reasoning? }           when we can't resolve (fall back to Claude).
 //
-// Currently supports: AFL match markets (h2h, handicap, total, margin)
-// Not yet supported: player stats (phase 7), NRL (phase 9+), other sports
+// Supports: AFL and NRL match markets + player props
 
 import { classifyMarket } from './classifyMarket.js'
 import { resolve as resolveH2H } from './resolvers/h2h.js'
@@ -14,18 +13,22 @@ import { resolve as resolveTotal } from './resolvers/total.js'
 import { resolve as resolveMargin } from './resolvers/margin.js'
 import { resolve as resolvePlayerStat } from './resolvers/playerStat.js'
 import { resolve as resolveGoalScorer } from './resolvers/goalScorer.js'
+import { resolve as resolveTryScorer } from './resolvers/tryScorer.js'
+import { resolve as resolveHtft } from './resolvers/htft.js'
+import { resolve as resolveQuarterWinner } from './resolvers/quarterWinner.js'
 
-const MATCH_RESOLVERS = { h2h: resolveH2H, handicap: resolveHandicap, total: resolveTotal, margin: resolveMargin }
-const PLAYER_RESOLVERS = { playerStat: resolvePlayerStat, goalScorer: resolveGoalScorer }
+const SUPPORTED_SPORTS = ['AFL', 'NRL']
+const MATCH_RESOLVERS = { h2h: resolveH2H, handicap: resolveHandicap, total: resolveTotal, margin: resolveMargin, htft: resolveHtft, quarterWinner: resolveQuarterWinner }
+const PLAYER_RESOLVERS = { playerStat: resolvePlayerStat, goalScorer: resolveGoalScorer, tryScorer: resolveTryScorer }
 
 export async function resolveLeg(leg, betDate, supabaseUrl, supabaseKey) {
-  if (leg.sport !== 'AFL') return { resolved: false }
+  if (!SUPPORTED_SPORTS.includes(leg.sport)) return { resolved: false }
 
   const marketType = classifyMarket(leg)
   if (!marketType) return { resolved: false }
 
   const game = await findGame(leg, betDate, supabaseUrl, supabaseKey)
-  if (!game) return { resolved: false, reasoning: 'No matching AFL game in sport_games' }
+  if (!game) return { resolved: false, reasoning: `No matching ${leg.sport} game in sport_games` }
 
   if (marketType in MATCH_RESOLVERS) {
     const result = MATCH_RESOLVERS[marketType](game, leg)
@@ -59,7 +62,7 @@ async function findGame(leg, betDate, supabaseUrl, supabaseKey) {
   const date = leg.event_time ? leg.event_time.split('T')[0] : betDate
   if (!date) return null
 
-  const url = `${supabaseUrl}/rest/v1/sport_games?sport=eq.AFL&game_date=eq.${date}&select=*`
+  const url = `${supabaseUrl}/rest/v1/sport_games?sport=eq.${leg.sport}&game_date=eq.${date}&select=*`
   const res = await fetch(url, {
     headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
   })

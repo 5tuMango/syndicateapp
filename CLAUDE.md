@@ -30,11 +30,33 @@ BUILD_NOTES.md        Plan for upcoming in-house resolver project — READ THIS 
 
 ## Critical context — read before changing anything
 
-### 🚨 Result-checking cron is intentionally OFF
+### 🚨 Claude API is OFF for sport result checking — until further notice
 
-`vercel.json` only has the weekly-multi creation cron (`/api/create-weekly-multi`, Sunday 8pm UTC). The result-checking cron (`/api/check-results`) was disabled because it cost ~$6 per run on busy weekends.
+To eliminate ongoing Claude spend on result checks, the project uses **in-house resolvers** for AFL and NRL (Squiggle / NRL.com / AFL.com.au — see BUILD_NOTES.md). Claude is **not** to be re-enabled for sport result checking without explicit user approval.
 
-**Do not re-enable it** without user approval. Manual checks via the app UI are fine.
+Current behaviour:
+- `check-results.js` → `checkSingleLeg`: runs `resolveLeg` (in-house). If unresolved, returns `pending`. Claude is unreachable here.
+- `check-results.js` → `checkBetResult` (single-bet path): **still has Claude fallback** — gate this if you want truly zero Claude.
+- `check-weekly-results.js` → `checkSingleLeg`: **still has Claude fallback** — same.
+
+If a leg can't be resolved in-house it should **stay pending** and be flagged for manual review, not handed to Claude.
+
+### Result-checking cron is back ON
+
+After the in-house resolver was built, result checking is live again. Schedule split:
+
+**Vercel crons** (Hobby plan caps at 1/day per cron — do NOT add sub-daily schedules here, deploy will fail):
+- `/api/collect-afl-games` — daily at 14:00 UTC
+- `/api/collect-afl-stats` — daily at 15:00 UTC
+- `/api/collect-nrl-games` — daily at 14:30 UTC
+- `/api/collect-nrl-stats` — daily at 15:30 UTC
+
+**External (cronjob.org)** — used for anything more frequent than daily:
+- `/api/check-results` — every 30 min Thu–Sun (NRL/AFL match days). Managed in cronjob.org dashboard, NOT in `vercel.json`.
+
+These should not regress to using Claude. If `logUsage` shows new `check-results` Anthropic calls appearing, something's gone wrong — investigate before disabling the cron.
+
+The check-results cron only retries pending bets in the **3–9 hour window after kickoff** (`isOutsideWindow` in check-results.js). Bets older than 9h need manual review.
 
 ### 🚨 Cost monitoring is wired up
 
@@ -60,7 +82,7 @@ When manipulating year strings (e.g. fixing stale years from AI extraction), use
 
 ### 🚨 NRL is NOT in API-Sports
 
-The API-Sports Rugby API is **rugby union only**. NRL is rugby league — different sport. Confirmed from user's API-Sports account. NRL bets fall through to Claude web search until the in-house NRL collector is built (see BUILD_NOTES.md).
+The API-Sports Rugby API is **rugby union only**. NRL is rugby league — different sport. NRL data comes from the in-house NRL.com collectors (`collect-nrl-games.js`, `collect-nrl-stats.js`).
 
 ---
 
@@ -90,22 +112,19 @@ Set in Vercel for Production + Preview:
 
 ---
 
-## Active project: in-house result resolvers
+## In-house resolver (built and live)
 
-The next major build is replacing Claude-based result checking with in-house data collectors + deterministic resolvers for AFL and NRL. **See `BUILD_NOTES.md` at the repo root for the full plan.**
+Result checking for AFL and NRL goes through the in-house resolver instead of Claude. Key files:
 
-If the user opens a session about cost reduction, result checking, AFL/NRL data, Squiggle, or anything in that orbit — read BUILD_NOTES.md first.
+- `api/_lib/classifyMarket.js` — market type classifier (regex/keyword)
+- `api/_lib/resolveLeg.js` — orchestrator: classify → look up game/stats → resolve
+- `api/_lib/apiSports.js` — shared API-Sports client (kept for non-AU sports)
+- `api/collect-afl-games.js` — Squiggle collector → `sport_games`
+- `api/collect-afl-stats.js` — AFL.com.au match centre → `sport_player_stats`
+- `api/collect-nrl-games.js` — NRL.com draw collector
+- `api/collect-nrl-stats.js` — NRL.com match centre collector
+- `api/test-api-sports.js` — POST mode runs legs through `resolveLeg` for backfill regression testing
 
----
+DB tables: `sport_games`, `sport_player_stats`. See migration files under `supabase/`.
 
-## Recent significant work (uncommitted as of last session)
-
-These files have changes that are not yet committed:
-
-- `api/_lib/apiSports.js` (new) — shared API-Sports client for AFL/NBA/NBL/Basketball/Soccer/NFL/NCAAF
-- `api/check-results.js` — wired API-Sports into both check paths
-- `api/check-weekly-results.js` — same
-- `api/test-api-sports.js` — health check + game-list diagnostic
-- `vercel.json` — SPA rewrite changed from `/(.*)` to `/((?!api/).*)` so `/api/*` routes correctly
-
-These will be partially superseded by the BUILD_NOTES.md project. Discuss with user whether to commit as a checkpoint or merge with the upcoming build.
+**`BUILD_NOTES.md`** has the original plan, architecture, and rationale — read it if working on the resolver, collectors, or extending to new sports.

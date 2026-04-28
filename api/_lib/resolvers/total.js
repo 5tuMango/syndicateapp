@@ -4,7 +4,7 @@
 
 function parseLine(leg) {
   const text = `${leg.selection || ''} ${leg.description || ''}`
-  const m = text.match(/(over|under)\s*(\d+\.?\d*)/i)
+  const m = text.match(/(over|under)\s*\(?\s*(\d+\.?\d*)/i)
   if (!m) return null
   return {
     direction: m[1].toLowerCase(),

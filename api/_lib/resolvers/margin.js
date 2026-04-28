@@ -21,9 +21,9 @@ function parseMargin(leg) {
     }
   }
 
-  // Range bucket: "TeamName 1-39" / "TeamName by 10-19"
-  // Handles both hyphen (-) and en-dash (–)
-  const bucket = sel.match(/^(.+?)\s+(?:by\s+)?(\d+)\s*[-\u2013]\s*(\d+)/i)
+  // Range bucket: "TeamName 1-39" / "TeamName by 10-19" / "TeamName 1 to 39"
+  // Handles hyphen, en-dash, and "to"
+  const bucket = sel.match(/^(.+?)\s+(?:by\s+)?(\d+)\s*(?:[-\u2013]|to)\s*(\d+)/i)
   if (bucket) {
     return {
       team: bucket[1].trim(),

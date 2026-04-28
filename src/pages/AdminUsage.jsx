@@ -32,12 +32,28 @@ export default function AdminUsage() {
   const [profiles, setProfiles] = useState({})
   const [loading, setLoading] = useState(true)
   const [days, setDays] = useState(30)
+  const [alerts, setAlerts] = useState([])
 
   if (!profile?.is_admin) return <Navigate to="/" replace />
 
   useEffect(() => {
     load()
+    loadAlerts()
   }, [days])
+
+  async function loadAlerts() {
+    const { data } = await supabase
+      .from('system_alerts')
+      .select('*')
+      .eq('resolved', false)
+      .order('created_at', { ascending: false })
+    setAlerts(data || [])
+  }
+
+  async function dismissAlert(id) {
+    await supabase.from('system_alerts').update({ resolved: true }).eq('id', id)
+    setAlerts(a => a.filter(x => x.id !== id))
+  }
 
   async function load() {
     setLoading(true)
@@ -103,6 +119,24 @@ export default function AdminUsage() {
 
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-6">
+      {alerts.map(alert => (
+        <div key={alert.id} className="flex items-start justify-between gap-4 bg-red-900/40 border border-red-500/50 rounded-xl px-4 py-3">
+          <div>
+            <div className="text-sm font-semibold text-red-300 uppercase tracking-wide">
+              {alert.type === 'afl_token_expired' ? 'AFL Token Expired' : 'NRL API Issue'}
+            </div>
+            <div className="text-sm text-red-200 mt-0.5">{alert.message}</div>
+            <div className="text-xs text-red-400 mt-1">{new Date(alert.created_at).toLocaleString('en-AU')}</div>
+          </div>
+          <button
+            onClick={() => dismissAlert(alert.id)}
+            className="shrink-0 text-xs text-red-400 hover:text-red-200 border border-red-500/40 rounded px-2 py-1"
+          >
+            Dismiss
+          </button>
+        </div>
+      ))}
+
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">API Usage</h1>
         <select

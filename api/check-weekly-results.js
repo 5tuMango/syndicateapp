@@ -1,13 +1,8 @@
-// Vercel Serverless Function — checks pending weekly multi leg results via Claude web search
+// Vercel Serverless Function — checks pending weekly multi leg results via the in-house resolver.
+// Claude API is intentionally NOT called here (cost gate). Unresolved legs stay pending.
 // POST /api/check-weekly-results  { multiId: 'uuid' }
 
-import { logUsage } from './_lib/logUsage.js'
-import { isSportSupported, fetchGames, extractTeams, findGame } from './_lib/apiSports.js'
-
-const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
-// Haiku 4.5 for web search — ~3× cheaper than Sonnet. Revert to 'claude-sonnet-4-6' if tool use regresses.
-const MODEL_SEARCH = 'claude-haiku-4-5-20251001'
-const MAX_SEARCH_ITERATIONS = 3
+import { resolveLeg } from './_lib/resolveLeg.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -16,11 +11,8 @@ export default async function handler(req, res) {
 
   const SUPABASE_URL = process.env.VITE_SUPABASE_URL
   const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY
-  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY
-  const API_SPORTS_KEY = process.env.API_SPORTS_KEY
 
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured.' })
-  if (!ANTHROPIC_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured.' })
 
   const { multiId } = req.body || {}
   if (!multiId) return res.status(400).json({ error: 'multiId required' })
@@ -83,7 +75,7 @@ export default async function handler(req, res) {
         event_time: leg.event_time || null,
       }
 
-      const result = await checkSingleLeg(ANTHROPIC_KEY, API_SPORTS_KEY, legForCheck, betDate)
+      const result = await checkSingleLeg(legForCheck, betDate, SUPABASE_URL, SUPABASE_KEY)
       console.log(`  Leg [${legForCheck.selection}] → ${result.outcome} (${result.reasoning || ''})`)
 
       if (result.outcome === 'void') {
@@ -131,7 +123,13 @@ function deriveOutcome(legs) {
   return 'won'
 }
 
-async function checkSingleLeg(apiKey, apiSportsKey, leg, betDate) {
+// In-house resolver only. Claude is gated OFF — see CLAUDE.md.
+// If the resolver can't resolve, the leg stays pending.
+async function checkSingleLeg(leg, betDate, supabaseUrl, supabaseKey) {
+  const selection = leg.selection || leg.description || ''
+
+  // Stale-year guard: if extracted event_time has a year before the bet's year,
+  // patch the year via pure string replacement (never Date arithmetic — see CLAUDE.md).
   let date = leg.event_time ? leg.event_time.split('T')[0] : betDate
   if (date && betDate) {
     const eventYear = parseInt(date.split('-')[0])
@@ -140,112 +138,22 @@ async function checkSingleLeg(apiKey, apiSportsKey, leg, betDate) {
       date = betDate.split('-')[0] + date.substring(4)
     }
   }
-  const year = date ? date.split('-')[0] : new Date().getFullYear()
 
-  // ── Fetch confirmed score from API-Sports (if sport supported) ──────────────
-  let confirmedScoreLine = null
-  if (apiSportsKey && isSportSupported(leg.sport)) {
-    const games = await fetchGames(leg.sport, date, apiSportsKey)
-    if (Array.isArray(games) && games.length > 0) {
-      const teams = extractTeams(leg.event)
-      const game = findGame(games, teams)
-      if (game) {
-        if (game.status === 'upcoming' || game.status === 'in_progress') {
-          console.log(`  Leg [${leg.selection}] → API-Sports: game not finished (${game.status}) — skipping Claude`)
-          return { outcome: 'pending', confidence: 'high', reasoning: `API-Sports: ${game.status}` }
-        }
-        if (game.status === 'final') {
-          confirmedScoreLine = `[FINAL] ${game.home} ${game.homeScore} - ${game.awayScore} ${game.away}`
-        }
-      }
-    }
+  if (!supabaseUrl || !supabaseKey) {
+    return { outcome: 'pending', confidence: 'low', reasoning: 'Supabase creds missing — cannot resolve' }
   }
 
-  const confirmedScoreSection = confirmedScoreLine
-    ? `\n\nCONFIRMED SCORE (from API-Sports — treat as ground truth):\n${confirmedScoreLine}`
-    : ''
-
-  const system = `You are checking the result of a single Australian sports bet leg. Search the web only if needed and return ONLY valid JSON — no markdown, no explanation.${confirmedScoreSection}
-
-JSON format: { "outcome": "won" | "lost" | "void" | "pending", "confidence": "high" | "medium" | "low", "reasoning": "brief" }
-
-Rules:
-- If a CONFIRMED SCORE is provided above, use it as ground truth. Only web-search to resolve player props.
-- Search using the exact event name, player name, and date (year: ${year})
-- Player goals (AFL): search "[player] goals [teams] ${year}" on AFL.com.au or Fox Sports
-- Big Win Little Win / margin: use the confirmed score's margin if available, else search
-- Handicap/line: apply the handicap to the confirmed final score
-- Only use "pending" if the event has NOT happened yet
-- If the game was played, find the result and commit to won or lost
-- Return ONLY the JSON object`
-
-  const userMessage = `Sport: ${leg.sport}
-Event: ${leg.event} (${date})
-Market: ${leg.description}
-Selection: ${leg.selection}
-
-Search for this result and return JSON.`
-
-  const messages = [{ role: 'user', content: userMessage }]
-
-  for (let i = 0; i < MAX_SEARCH_ITERATIONS; i++) {
-    const response = await fetch(ANTHROPIC_API, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'web-search-2025-03-05',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL_SEARCH,
-        max_tokens: 512,
-        system,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages,
-      }),
-    })
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}))
-      throw new Error(err?.error?.message || `Anthropic API ${response.status}`)
-    }
-
-    const data = await response.json()
-    logUsage({ endpoint: 'check-weekly-results', model: data.model, usage: data.usage })
-
-    if (data.stop_reason === 'end_turn') {
-      const textBlock = data.content.find(b => b.type === 'text')
-      if (!textBlock) return { outcome: 'pending', confidence: 'low' }
-      return parseResult(textBlock.text)
-    }
-
-    if (data.stop_reason === 'tool_use') {
-      messages.push({ role: 'assistant', content: data.content })
-      const toolResults = data.content
-        .filter(b => b.type === 'tool_use')
-        .map(b => ({ type: 'tool_result', tool_use_id: b.id, content: '' }))
-      if (toolResults.length > 0) messages.push({ role: 'user', content: toolResults })
-    } else {
-      break
-    }
-  }
-
-  return { outcome: 'pending', confidence: 'low', reasoning: 'Could not determine result' }
-}
-
-function parseResult(text) {
   try {
-    const cleaned = text.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim()
-    const matches = [...cleaned.matchAll(/\{[\s\S]*?\}/g)]
-    const match = matches.length ? matches[matches.length - 1] : cleaned.match(/\{[\s\S]*\}/)
-    if (!match) return { outcome: 'pending', confidence: 'low', reasoning: text.substring(0, 100) }
-    const parsed = JSON.parse(match[0])
-    const valid = ['won', 'lost', 'void', 'pending']
-    if (!valid.includes(parsed.outcome)) parsed.outcome = 'pending'
-    return parsed
-  } catch {
-    return { outcome: 'pending', confidence: 'low', reasoning: 'JSON parse error' }
+    const inHouse = await resolveLeg(leg, date || betDate, supabaseUrl, supabaseKey)
+    if (inHouse.resolved && inHouse.outcome && inHouse.outcome !== 'needs_review') {
+      console.log(`  Leg [${selection}] → in-house: ${inHouse.outcome} (${inHouse.reasoning || ''})`)
+      return { outcome: inHouse.outcome, confidence: 'high', reasoning: inHouse.reasoning }
+    }
+    console.log(`  Leg [${selection}] → unresolved (${leg.sport}), leaving pending`)
+    return { outcome: 'pending', confidence: 'low', reasoning: inHouse.reasoning || 'needs_review' }
+  } catch (err) {
+    console.log(`  Leg [${selection}] → resolver error: ${err.message}`)
+    return { outcome: 'pending', confidence: 'low', reasoning: `Resolver error: ${err.message}` }
   }
 }
 
