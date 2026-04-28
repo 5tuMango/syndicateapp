@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { calcProfitLoss, formatCurrency, profitLossColor } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor } from '../lib/utils'
 
 const TEAM_COLORS = {
   blue: {
@@ -103,14 +103,16 @@ export default function Teams() {
     const resulted = countable.filter((b) => b.outcome === 'won' || b.outcome === 'lost')
     const won = resulted.filter((b) => b.outcome === 'won').length
     const totalPL = teamBets.reduce((sum, b) => sum + calcProfitLoss(b), 0)
-    const winRate = resulted.length > 0 ? Math.round((won / resulted.length) * 100) : 0
-    return { members: teamPersonas, betCount: countable.length, won, totalPL, winRate }
+    const winnings = teamBets
+      .filter((b) => b.outcome === 'won')
+      .reduce((sum, b) => sum + calcWinnings(b), 0)
+    return { members: teamPersonas, betCount: countable.length, won, totalPL, winnings }
   }
 
   const teamsWithStats = teams.map((t) => ({ ...t, stats: teamStats(t.id) }))
   const leadingTeam =
     teamsWithStats.length > 1
-      ? teamsWithStats.reduce((a, b) => (a.stats.totalPL >= b.stats.totalPL ? a : b))
+      ? teamsWithStats.reduce((a, b) => (a.stats.winnings >= b.stats.winnings ? a : b))
       : null
 
   const unassigned = personas.filter((p) => !p.team_id)
@@ -143,10 +145,10 @@ export default function Teams() {
     load()
   }
 
-  // Bar chart max value
-  const maxAbsPL = Math.max(
+  // Bar chart max value (driven by winnings — the primary team measure)
+  const maxWinnings = Math.max(
     1,
-    ...teamsWithStats.map((t) => Math.abs(t.stats.totalPL))
+    ...teamsWithStats.map((t) => t.stats.winnings)
   )
 
   if (loading) {
@@ -168,26 +170,24 @@ export default function Teams() {
       {teamsWithStats.length > 0 && (
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
-            P&amp;L Comparison
+            Winnings Comparison
           </h2>
           <div className="space-y-3">
             {teamsWithStats.map((team) => {
               const colors = TEAM_COLORS[team.color] || TEAM_COLORS.blue
-              const pl = team.stats.totalPL
-              const barPct = maxAbsPL > 0 ? (Math.abs(pl) / maxAbsPL) * 100 : 0
+              const winnings = team.stats.winnings
+              const barPct = maxWinnings > 0 ? (winnings / maxWinnings) * 100 : 0
               return (
                 <div key={team.id}>
                   <div className="flex items-center justify-between mb-1">
                     <span className={`text-sm font-medium ${colors.text}`}>{team.name}</span>
-                    <span className={`text-sm font-semibold ${profitLossColor(pl)}`}>
-                      {formatCurrency(pl)}
+                    <span className="text-sm font-semibold text-green-400">
+                      ${winnings.toFixed(2)}
                     </span>
                   </div>
                   <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all ${
-                        pl >= 0 ? 'bg-green-500' : 'bg-red-500'
-                      }`}
+                      className="h-full rounded-full transition-all bg-green-500"
                       style={{ width: `${barPct}%` }}
                     />
                   </div>
@@ -203,7 +203,7 @@ export default function Teams() {
         {teamsWithStats.map((team) => {
           const colors = TEAM_COLORS[team.color] || TEAM_COLORS.blue
           const isLeading = leadingTeam?.id === team.id && teamsWithStats.length > 1
-          const { members, betCount, totalPL, winRate } = team.stats
+          const { members, betCount, totalPL, winnings } = team.stats
 
           const canEditName = isAdmin || profile?.team_id === team.id
           const isEditingThis = editingTeamId === team.id
@@ -266,14 +266,16 @@ export default function Teams() {
               {/* Stats */}
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div>
+                  <div className="text-base font-bold text-green-400">
+                    ${winnings.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-0.5">Winnings</div>
+                </div>
+                <div>
                   <div className={`text-base font-bold ${profitLossColor(totalPL)}`}>
                     {formatCurrency(totalPL)}
                   </div>
                   <div className="text-xs text-slate-500 mt-0.5">P&amp;L</div>
-                </div>
-                <div>
-                  <div className="text-base font-bold text-white">{winRate}%</div>
-                  <div className="text-xs text-slate-500 mt-0.5">Win rate</div>
                 </div>
                 <div>
                   <div className="text-base font-bold text-white">{betCount}</div>
