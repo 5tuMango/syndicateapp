@@ -13,7 +13,10 @@ export default function ActiveTeamStrip({ team, weekNum, members, outstandingOth
       <p className="text-green-400 text-xs uppercase tracking-wide font-semibold mb-1">
         🏉 Team betting this week — Week {weekNum}
       </p>
-      <p className="text-white font-bold text-lg">{team.name}</p>
+      <p className="text-white font-bold text-lg">
+        {team.name}
+        <span className="text-slate-400 text-sm font-normal ml-2">($50 each)</span>
+      </p>
       {members.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {members.map(({ persona, unusedCredits }) => (
