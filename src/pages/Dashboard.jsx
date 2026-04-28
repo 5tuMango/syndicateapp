@@ -223,6 +223,23 @@ export default function Dashboard() {
     })
   }, [thisWeekendTeam, personaList, goAgainCredits])
 
+  // Punters NOT on this week's active team who still have unused Go-Again
+  // credits sitting on their account. They can't punt yet (their team isn't
+  // active) but the credits roll over until consumed.
+  const outstandingOtherTeamMembers = useMemo(() => {
+    if (!thisWeekendTeam?.team) return []
+    const activeTeamId = thisWeekendTeam.team.id
+    const offTeam = personaList.filter((p) => p.team_id && p.team_id !== activeTeamId)
+    return offTeam
+      .map((persona) => {
+        const unusedCredits = goAgainCredits.filter(
+          (c) => c.persona_id === persona.id && !c.used_at
+        ).length
+        return { persona, unusedCredits }
+      })
+      .filter((m) => m.unusedCredits > 0)
+  }, [thisWeekendTeam, personaList, goAgainCredits])
+
   // Confirmed earned bet returns (terms evaluated to true)
   const availableBetReturns = useMemo(() => {
     const cutoff = new Date()
@@ -387,6 +404,7 @@ export default function Dashboard() {
           team={thisWeekendTeam.team}
           weekNum={thisWeekendTeam.weekNum}
           members={activeTeamMembers}
+          outstandingOthers={outstandingOtherTeamMembers}
         />
       )}
 
