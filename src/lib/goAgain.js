@@ -3,7 +3,9 @@
 // another $50 stake. Credits roll forward indefinitely until consumed
 // by stakes in a future active week.
 
-const GO_AGAIN_TRIGGER = 250 // gross winnings (stake × odds) needed to earn a credit
+import { calcWinnings } from './utils'
+
+const GO_AGAIN_TRIGGER = 250 // dollars of winnings (cash actually returned) to earn a credit
 const BASE_ALLOWANCE = 50    // dollars per active-team punter per active week
 const CREDIT_VALUE = 50      // dollars added per credit
 
@@ -77,19 +79,22 @@ export function detectQualifyingBets(bets, personas, weekToTeam) {
 
   for (const bet of bets) {
     if (bet.outcome !== 'won') continue
-    const stake = parseFloat(bet.stake || 0)
-    const odds = parseFloat(bet.odds || 0)
-    if (!stake || !odds) continue
-    const winnings = stake * odds
-    if (winnings < GO_AGAIN_TRIGGER) continue
+    // Use calcWinnings — handles bonus bets correctly (stake × (odds-1)).
+    // Yoda's $50 bonus bet at 6.6 odds = $280 winnings → qualifies.
+    const winnings = calcWinnings(bet)
+    if (!winnings || winnings < GO_AGAIN_TRIGGER) continue
 
     const persona = (bet.persona_id && personaById[bet.persona_id]) || personaByUserId[bet.user_id]
     if (!persona || !persona.team_id) continue
 
+    // Active-week check: only mint a credit if the bet was placed during a week
+    // when the punter's team was active. If the weekToTeam map has no entry for
+    // the bet's week (e.g. very early bet before any weekly_multi existed), allow
+    // it through as long as the persona is on a team — better to over-credit
+    // than to silently drop legitimate qualifying bets.
     const wk = aestMondayKey(bet.created_at || bet.date)
     const activeTeamId = activeTeamIdForWeek(wk, weekToTeam)
-    if (!activeTeamId) continue
-    if (activeTeamId !== persona.team_id) continue // bet wasn't during their team's active week
+    if (activeTeamId && activeTeamId !== persona.team_id) continue
 
     out.push({
       persona_id: persona.id,

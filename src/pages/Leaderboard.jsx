@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { calcProfitLoss, calcWinnings, formatCurrency, profitLossColor, isRealStake } from '../lib/utils'
 import { usePersonas } from '../hooks/usePersonas'
+import { aestMondayKey, currentAestMondayKey } from '../lib/goAgain'
 
 const RANK_COLORS = ['text-yellow-400', 'text-slate-300', 'text-amber-600']
 
@@ -47,6 +48,7 @@ export default function Leaderboard() {
   const [members, setMembers] = useState([]) // personas with team_id resolved
   const [teams, setTeams] = useState([])
   const [weeklyMultis, setWeeklyMultis] = useState([])
+  const [goAgainCredits, setGoAgainCredits] = useState([])
   const [loading, setLoading] = useState(true)
   const [sortKey, setSortKey] = useState('winnings')
 
@@ -55,14 +57,15 @@ export default function Leaderboard() {
   }, [])
 
   async function fetchData() {
-    const [betsRes, personasRes, profilesRes, teamsRes, weeklyRes] = await Promise.all([
-      supabase.from('bets').select('user_id, persona_id, stake, odds, outcome, is_bonus_bet, is_rollover, intend_to_rollover, bet_return_value'),
+    const [betsRes, personasRes, profilesRes, teamsRes, weeklyRes, creditsRes] = await Promise.all([
+      supabase.from('bets').select('user_id, persona_id, stake, odds, outcome, is_bonus_bet, is_rollover, intend_to_rollover, bet_return_value, created_at, date'),
       // select('*') so we get team_id if the column exists, without error if it doesn't
       supabase.from('personas').select('*').order('nickname'),
       // keep profiles for team fallback (pre-migration) and kitty data if needed
       supabase.from('profiles').select('id, team_id'),
       supabase.from('teams').select('*').order('created_at'),
       supabase.from('weekly_multis').select('*, weekly_multi_legs(*)'),
+      supabase.from('go_again_credits').select('*'),
     ])
 
     // Build profile→team fallback map for claimed personas pre-migration
@@ -81,6 +84,7 @@ export default function Leaderboard() {
     setMembers(personas)
     setTeams(teamsRes.data || [])
     setWeeklyMultis(weeklyRes.data || [])
+    setGoAgainCredits(creditsRes.data || [])
     setLoading(false)
   }
 
@@ -144,38 +148,90 @@ export default function Leaderboard() {
   const weeklyStats = useMemo(() => calcWeeklyStats(weeklyMultis), [weeklyMultis])
 
   // ── Weekly rotation & allocation tracking ─────────────────────────────────
+  // Allocation = $50 per active week the team has had (including current week
+  // once Monday AEST has flipped) + $50 per Go-Again credit earned by the
+  // member, regardless of whether it's been used yet (used credits still count
+  // toward the lifetime allocation total — "actual stakes" tracks usage).
   const ALLOCATION_PER_WEEKEND = 50
 
   const rotationStats = useMemo(() => {
     if (teams.length < 2) return null
 
+    // Use total multi count (not just resolved ones) — a created multi means
+    // that betting week happened, regardless of whether legs have been resolved.
+    const sortedMultis = [...weeklyMultis].sort((a, b) =>
+      (a.created_at || '').localeCompare(b.created_at || '')
+    )
+    const totalMultis = sortedMultis.length
+
+    // Completed (fully-resolved) multis still drive the rotation banner — keeps
+    // the "this/next weekend" labels stable across multi-resolution windows.
     const completedWeeks = weeklyMultis.filter((m) => {
       const nonVoid = (m.weekly_multi_legs || []).filter((l) => l.outcome !== 'void')
       return nonVoid.length > 0 && nonVoid.every((l) => l.outcome === 'won' || l.outcome === 'lost')
     }).length
-
     const upcomingWeekNum = completedWeeks + 1
     const thisWeekendTeam = teams[upcomingWeekNum % 2]
     const nextWeekendTeam = teams[(upcomingWeekNum - 1) % 2]
 
-    const teamWeekends = [
-      Math.floor(completedWeeks / 2),
-      Math.floor((completedWeeks + 1) / 2),
-    ]
+    // Active weeks per team, alternating with the same rotation as thisWeekendTeam.
+    // weekNum N → teams[N % 2]. So teams[1] gets odd weeks, teams[0] gets even weeks.
+    const teamActiveWeeks = {}
+    for (const t of teams) teamActiveWeeks[t.id] = 0
+    for (let i = 1; i <= totalMultis; i++) {
+      const teamId = teams[i % 2]?.id
+      if (teamId) teamActiveWeeks[teamId]++
+    }
+
+    // If today (Monday-AEST week) hasn't yet had a multi created for it, the
+    // upcoming team should already see their +$50 — that's the "team flips
+    // Monday" behaviour. The cron creates multis Mon 06:00 AEST, so this gap
+    // is small but real (and matters when manually checking on a Monday morning).
+    const currentWeek = currentAestMondayKey()
+    const lastMultiWeek = sortedMultis.length > 0
+      ? aestMondayKey(sortedMultis[sortedMultis.length - 1].created_at)
+      : null
+    const currentWeekHasMulti = lastMultiWeek === currentWeek
+    if (!currentWeekHasMulti) {
+      const nextWeekNum = totalMultis + 1
+      const nextActiveTeamId = teams[nextWeekNum % 2]?.id
+      if (nextActiveTeamId) teamActiveWeeks[nextActiveTeamId]++
+    }
 
     const memberAllocations = members.map((persona) => {
-      const teamIdx = teams.findIndex((t) => t.id === persona.team_id)
-      const completedWeekends = teamIdx >= 0 ? teamWeekends[teamIdx] : 0
-      const expected = completedWeekends * ALLOCATION_PER_WEEKEND
+      const teamWeeks = teamActiveWeeks[persona.team_id] || 0
+      const baseAllocation = teamWeeks * ALLOCATION_PER_WEEKEND
+      const personaCreditCount = goAgainCredits.filter((c) => c.persona_id === persona.id).length
+      const goAgainBonus = personaCreditCount * ALLOCATION_PER_WEEKEND
+      const expected = baseAllocation + goAgainBonus
       const actual = bets
         .filter((b) => betBelongsToPersona(b, persona.id) && b.outcome !== 'void' && isRealStake(b))
         .reduce((sum, b) => sum + parseFloat(b.stake), 0)
       const remaining = Math.max(0, expected - actual)
-      return { memberId: persona.id, expected, actual, remaining }
+      return { memberId: persona.id, teamId: persona.team_id, expected, actual, remaining, goAgainBonus }
     })
 
-    return { thisWeekendTeam, nextWeekendTeam, upcomingWeekNum, completedWeeks, memberAllocations }
-  }, [weeklyMultis, teams, members, bets, byPersonaId])
+    // Per-team allocation totals — sum of all members' expected allocation.
+    const teamAllocations = {}
+    for (const t of teams) {
+      const sum = memberAllocations
+        .filter((a) => a.teamId === t.id)
+        .reduce((s, a) => s + a.expected, 0)
+      const used = memberAllocations
+        .filter((a) => a.teamId === t.id)
+        .reduce((s, a) => s + a.actual, 0)
+      teamAllocations[t.id] = { expected: sum, actual: used, remaining: Math.max(0, sum - used) }
+    }
+
+    return {
+      thisWeekendTeam,
+      nextWeekendTeam,
+      upcomingWeekNum,
+      completedWeeks,
+      memberAllocations,
+      teamAllocations,
+    }
+  }, [weeklyMultis, teams, members, bets, byPersonaId, goAgainCredits])
 
   const groupStats = useMemo(() => {
     const winnings = individStats.winnings + weeklyStats.winnings
@@ -327,6 +383,19 @@ export default function Leaderboard() {
                     <span className="text-slate-500">Win rate <span className="text-white font-medium">{team.winRate}%</span></span>
                     <span className={profitLossColor(team.pl)}>P&L {formatCurrency(team.pl)}</span>
                   </div>
+                  {(() => {
+                    const alloc = rotationStats?.teamAllocations?.[team.id]
+                    if (!alloc || alloc.expected === 0) return null
+                    return (
+                      <div className="flex items-center gap-2 text-xs pt-1 border-t border-slate-700/40">
+                        <span className="text-slate-500">Allocation</span>
+                        <span className="text-white font-medium">${alloc.actual.toFixed(0)} / ${alloc.expected.toFixed(0)}</span>
+                        {alloc.remaining > 0 && (
+                          <span className="text-amber-400">${alloc.remaining.toFixed(0)} left</span>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })}
