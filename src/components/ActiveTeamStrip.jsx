@@ -1,41 +1,33 @@
 // Top-of-dashboard strip showing the team that's punting this active week.
-// Lists the 4 members across the row, with a "Go-Again $50" pill on any
-// member who has earned (and not yet spent) bonus stake credits.
+// Matches the Leaderboard "This Weekend" card style — tight pill chips per
+// member, with a small "+$50" hint on anyone who has unused Go-Again credits.
 
 export default function ActiveTeamStrip({ team, weekNum, members }) {
   if (!team) return null
 
   return (
-    <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-green-400 text-sm">🏉</span>
-        <span className="text-slate-400 text-xs uppercase tracking-wide">Team betting this week</span>
-        <span className="text-green-400 font-semibold text-sm">{team.name}</span>
-        <span className="text-slate-600 text-xs ml-auto">Week {weekNum}</span>
-      </div>
-
-      {members.length === 0 ? (
-        <p className="text-slate-500 text-xs italic">No members assigned to this team.</p>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {members.map((m) => (
-            <div
-              key={m.persona.id}
-              className="flex flex-col items-center text-center bg-slate-800/60 rounded-lg px-2 py-2 border border-slate-700/50"
+    <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+      <p className="text-green-400 text-xs uppercase tracking-wide font-semibold mb-1">
+        🏉 Team betting this week — Week {weekNum}
+      </p>
+      <p className="text-white font-bold text-lg">{team.name}</p>
+      {members.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {members.map(({ persona, unusedCredits }) => (
+            <span
+              key={persona.id}
+              className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1"
             >
-              <span className="text-2xl leading-none">{m.persona.emoji}</span>
-              <span className="text-xs text-slate-200 mt-1 truncate max-w-full">
-                {m.persona.nickname}
-              </span>
-              {m.unusedCredits > 0 && (
+              <span>{persona.emoji} {persona.nickname}</span>
+              {unusedCredits > 0 && (
                 <span
-                  title={`Earned a Go-Again ($50 extra stake)${m.unusedCredits > 1 ? ` × ${m.unusedCredits}` : ''}`}
-                  className="mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300"
+                  title={`Go-Again — extra $50 stake${unusedCredits > 1 ? ` × ${unusedCredits}` : ''}`}
+                  className="text-[10px] font-semibold bg-amber-500/30 text-amber-200 px-1 py-px rounded-full"
                 >
-                  Go-Again {m.unusedCredits > 1 ? `×${m.unusedCredits}` : ''} +$50
+                  {unusedCredits > 1 ? `+$${unusedCredits * 50}` : '+$50'}
                 </span>
               )}
-            </div>
+            </span>
           ))}
         </div>
       )}
