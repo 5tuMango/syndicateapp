@@ -41,17 +41,17 @@ export default function ActiveTeamStrip({ team, weekNum, members, outstandingOth
             Outstanding allocations · off-team
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {outstandingOthers.map(({ persona, unusedCredits }) => (
+            {outstandingOthers.map(({ persona, remaining }) => (
               <span
                 key={persona.id}
                 className="text-xs bg-amber-500/10 text-amber-300/90 px-2 py-0.5 rounded-full inline-flex items-center gap-1 border border-amber-500/20"
               >
                 <span>{persona.emoji} {persona.nickname}</span>
                 <span
-                  title={`Unused Go-Again — $50 stake${unusedCredits > 1 ? ` × ${unusedCredits}` : ''} carried over`}
+                  title="Outstanding allocation (unused base + Go-Again, rolls over)"
                   className="text-[10px] font-semibold bg-amber-500/30 text-amber-200 px-1 py-px rounded-full"
                 >
-                  {unusedCredits > 1 ? `+$${unusedCredits * 50}` : '+$50'}
+                  ${remaining}
                 </span>
               </span>
             ))}

@@ -12,6 +12,7 @@ import {
   stakeThisWeekForPersona,
   creditsConsumedByStake,
   currentAestMondayKey,
+  aestMondayKey,
 } from '../lib/goAgain'
 
 function calcWeeklyStats(multis) {
@@ -211,7 +212,58 @@ export default function Dashboard() {
     })()
   }, [loading, bets, weeklyMultis, teams, personaList, goAgainCredits])
 
-  // Members of the team punting this week, with their unused-credit count.
+  // Per-persona allocation (mirrors Leaderboard.rotationStats.memberAllocations).
+  // expected = teamActiveWeeks × $50 + Go-Again credits earned × $50
+  // actual   = total real-stake non-void stakes ever placed by this persona
+  // remaining = max(0, expected − actual) — captures BOTH unused Go-Again
+  // credits AND missed base allocations (e.g. an active-week the punter
+  // didn't bet their $50). Single source of truth for "what's outstanding".
+  const memberAllocations = useMemo(() => {
+    if (teams.length < 2) return new Map()
+    const ALLOCATION_PER_WEEKEND = 50
+
+    const sortedMultis = [...weeklyMultis].sort((a, b) =>
+      (a.created_at || '').localeCompare(b.created_at || '')
+    )
+    const totalMultis = sortedMultis.length
+    const teamActiveWeeks = {}
+    for (const t of teams) teamActiveWeeks[t.id] = 0
+    for (let i = 1; i <= totalMultis; i++) {
+      const teamId = teams[i % 2]?.id
+      if (teamId) teamActiveWeeks[teamId]++
+    }
+    // Tick the upcoming team up if today's Monday-AEST week has no multi yet
+    const currentWeek = currentAestMondayKey()
+    const lastMultiWeek = sortedMultis.length > 0
+      ? aestMondayKey(sortedMultis[sortedMultis.length - 1].created_at)
+      : null
+    if (lastMultiWeek !== currentWeek) {
+      const nextWeekNum = totalMultis + 1
+      const nextActiveTeamId = teams[nextWeekNum % 2]?.id
+      if (nextActiveTeamId) teamActiveWeeks[nextActiveTeamId]++
+    }
+
+    const map = new Map()
+    for (const persona of personaList) {
+      const teamWeeks = teamActiveWeeks[persona.team_id] || 0
+      const creditCount = goAgainCredits.filter((c) => c.persona_id === persona.id).length
+      const expected = (teamWeeks + creditCount) * ALLOCATION_PER_WEEKEND
+      const actual = bets
+        .filter((b) => {
+          if (b.outcome === 'void' || !isRealStake(b)) return false
+          if (b.persona_id) return b.persona_id === persona.id
+          return persona.claimed_by && b.user_id === persona.claimed_by
+        })
+        .reduce((sum, b) => sum + parseFloat(b.stake || 0), 0)
+      const remaining = Math.max(0, expected - actual)
+      map.set(persona.id, { expected, actual, remaining })
+    }
+    return map
+  }, [teams, weeklyMultis, personaList, bets, goAgainCredits])
+
+  // Members of the team punting this week — chip shows their unused-credit
+  // count as the +$X hint (still a useful "extra stake" cue on top of their
+  // base $50 allowance for the week).
   const activeTeamMembers = useMemo(() => {
     if (!thisWeekendTeam?.team) return []
     const teamId = thisWeekendTeam.team.id
@@ -223,22 +275,21 @@ export default function Dashboard() {
     })
   }, [thisWeekendTeam, personaList, goAgainCredits])
 
-  // Punters NOT on this week's active team who still have unused Go-Again
-  // credits sitting on their account. They can't punt yet (their team isn't
-  // active) but the credits roll over until consumed.
+  // Off-team punters with outstanding allocation $ — covers both unused
+  // Go-Again credits AND missed base allocations from prior active weeks.
+  // Uses the same expected − actual formula as Leaderboard so the two pages
+  // never disagree.
   const outstandingOtherTeamMembers = useMemo(() => {
     if (!thisWeekendTeam?.team) return []
     const activeTeamId = thisWeekendTeam.team.id
     const offTeam = personaList.filter((p) => p.team_id && p.team_id !== activeTeamId)
     return offTeam
       .map((persona) => {
-        const unusedCredits = goAgainCredits.filter(
-          (c) => c.persona_id === persona.id && !c.used_at
-        ).length
-        return { persona, unusedCredits }
+        const alloc = memberAllocations.get(persona.id)
+        return { persona, remaining: alloc?.remaining || 0 }
       })
-      .filter((m) => m.unusedCredits > 0)
-  }, [thisWeekendTeam, personaList, goAgainCredits])
+      .filter((m) => m.remaining > 0)
+  }, [thisWeekendTeam, personaList, memberAllocations])
 
   // Confirmed earned bet returns (terms evaluated to true)
   const availableBetReturns = useMemo(() => {
