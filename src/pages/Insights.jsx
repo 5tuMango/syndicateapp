@@ -144,7 +144,7 @@ export default function Insights() {
         ? Math.floor((now - new Date(lastWinDate + 'T00:00:00')) / 864e5)
         : null
       return { ...m, won30d, wonAll, lastWinDate, daysSinceWin }
-    })
+    }).sort((a, b) => b.wonAll - a.wonAll)
   }, [bets, members, byPersonaId, personaMap])
 
   // ── Win rate by sport — based on individual legs (includes multi legs) ──────

@@ -94,9 +94,19 @@ export default function Teams() {
     return !!(p?.claimed_by && bet.user_id === p.claimed_by)
   }
 
+  // Per-persona winnings — used to order members within a team card.
+  function personaWinnings(personaId) {
+    return bets
+      .filter((b) => betBelongsToPersona(b, personaId) && b.outcome === 'won')
+      .reduce((sum, b) => sum + calcWinnings(b), 0)
+  }
+
   // Build stats per team using persona-based membership
   function teamStats(teamId) {
-    const teamPersonas = personas.filter((p) => p.team_id === teamId)
+    const teamPersonas = personas
+      .filter((p) => p.team_id === teamId)
+      .map((p) => ({ ...p, winnings: personaWinnings(p.id) }))
+      .sort((a, b) => b.winnings - a.winnings)
     const teamBets = bets.filter((b) => teamPersonas.some((p) => betBelongsToPersona(b, p.id)))
     // Exclude rollover bets from win/loss counts (same logic as Leaderboard)
     const countable = teamBets.filter((b) => !b.intend_to_rollover && !b.is_rollover)
@@ -298,6 +308,11 @@ export default function Teams() {
                         <div className="flex items-center gap-2">
                           <span className="text-xl">{persona.emoji}</span>
                           <span className="text-sm text-slate-200">{persona.nickname}</span>
+                          {persona.winnings > 0 && (
+                            <span className="text-xs text-green-400 font-medium">
+                              ${persona.winnings.toFixed(0)}
+                            </span>
+                          )}
                           {!persona.claimed_by && (
                             <span className="text-xs text-slate-500">(unclaimed)</span>
                           )}
