@@ -448,6 +448,23 @@ export default function Dashboard() {
     return { pinnedWeekly, alivePending, deadPending, recentLoss, wins, archive }
   }, [filteredBets, weeklyMultis])
 
+  // Mini-leaderboard for the kitty card right rail — top 8 by winnings.
+  const kittyMiniLeaderboard = useMemo(() => {
+    return personaList
+      .map((p) => {
+        const winnings = bets
+          .filter((b) => {
+            if (b.outcome !== 'won') return false
+            if (b.persona_id) return b.persona_id === p.id
+            return p.claimed_by && b.user_id === p.claimed_by
+          })
+          .reduce((sum, b) => sum + calcWinnings(b), 0)
+        return { id: p.id, emoji: p.emoji, nickname: p.nickname, winnings }
+      })
+      .sort((a, b) => b.winnings - a.winnings)
+      .slice(0, 8)
+  }, [personaList, bets])
+
   return (
     <div className="space-y-5">
       {thisWeekendTeam && (
@@ -466,7 +483,8 @@ export default function Dashboard() {
 
       {/* Kitty — club fund overview */}
       {personaList.length > 0 && (
-        <div className="bg-slate-800 rounded-xl border border-emerald-700/40 p-4">
+        <div className="bg-slate-800 rounded-xl border border-emerald-700/40 p-4 flex gap-3">
+          <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-emerald-400 font-bold text-sm uppercase tracking-wide">💰 The Kitty</span>
           </div>
@@ -517,6 +535,30 @@ export default function Dashboard() {
             {personaList.filter(p => parseFloat(p.amount_paid || 0) >= parseFloat(p.contribution_target || 400)).length}/{personaList.length} members fully paid
             {kitty.pendingStakes > 0 && <span className="text-yellow-500"> · ${kitty.pendingStakes.toFixed(2)} in pending bets</span>}
           </p>
+          </div>
+          {/* Mini leaderboard rail — top 8 by winnings */}
+          {kittyMiniLeaderboard.length > 0 && (
+            <div className="shrink-0 flex flex-col justify-between border-l border-slate-700/60 pl-2.5 -my-1">
+              <p className="text-[9px] text-slate-500 uppercase tracking-wider mb-0.5 text-center">Top</p>
+              <div className="flex flex-col gap-0.5">
+                {kittyMiniLeaderboard.map((p, i) => (
+                  <div
+                    key={p.id}
+                    title={`${p.nickname} — $${p.winnings.toFixed(0)}`}
+                    className="flex items-center gap-1 text-xs leading-none"
+                  >
+                    <span className={`w-3 text-right tabular-nums ${
+                      i === 0 ? 'text-yellow-400 font-bold'
+                      : i === 1 ? 'text-slate-300 font-bold'
+                      : i === 2 ? 'text-amber-600 font-bold'
+                      : 'text-slate-500'
+                    }`}>{i + 1}</span>
+                    <span className="text-base leading-none">{p.emoji}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
