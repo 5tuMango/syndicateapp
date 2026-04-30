@@ -1,6 +1,14 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { fileToResizedBase64 } from '../utils/resizeImage'
+
+// Strip a data URL prefix back into { data, mime } so we can re-send a
+// previously-uploaded image to the OCR endpoint without re-asking the user.
+function dataUrlParts(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return null
+  const m = dataUrl.match(/^data:([^;]+);base64,(.*)$/)
+  return m ? { mime: m[1], data: m[2] } : null
+}
 
 // Shared modal for marking a bet (or weekly multi) as cashed out.
 // `table` is 'bets' or 'weekly_multis'. `row` is the existing record — fields
@@ -30,45 +38,72 @@ export default function CashOutModal({ open, onClose, table, row, onSaved }) {
   const numericValue = parseFloat(value)
   const profit = !isNaN(numericValue) ? numericValue - stake : null
 
+  // Run OCR against the given image. Updates value + extractMsg.
+  async function runExtract(imageBase64, mimeType) {
+    if (!imageBase64 || !mimeType) {
+      setExtractMsg({ ok: false, text: 'No screenshot data available to read.' })
+      return
+    }
+    setExtracting(true)
+    setExtractMsg(null)
+    try {
+      const res = await fetch('/api/extract-cash-out', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64, mimeType }),
+      })
+      let data = {}
+      try { data = await res.json() } catch { data = {} }
+      if (res.ok && data.value != null) {
+        setValue(String(data.value))
+        setExtractMsg({ ok: true, text: `Read $${Number(data.value).toFixed(2)} from screenshot — adjust if needed.` })
+      } else {
+        const detail = data.error || data.reason || `HTTP ${res.status}`
+        setExtractMsg({ ok: false, text: `Auto-read failed (${detail}) — enter the value manually.` })
+      }
+    } catch (err) {
+      setExtractMsg({ ok: false, text: `Auto-read failed: ${err.message} — enter the value manually.` })
+    } finally {
+      setExtracting(false)
+    }
+  }
+
   async function handleImage(e) {
     const file = e.target.files?.[0]
     if (!file) return
     setError(null)
     setExtractMsg(null)
     try {
-      // fileToResizedBase64 returns { imageBase64, mimeType } — wrap it back
-      // into a data URL so we can both preview <img src=…> and store it.
       const { imageBase64, mimeType } = await fileToResizedBase64(file)
       setImage(`data:${mimeType};base64,${imageBase64}`)
-
-      // Try to OCR the cash-out value out of the screenshot. Cheap Haiku call.
-      // User can override if it gets it wrong, or we leave the field empty.
-      setExtracting(true)
-      try {
-        const res = await fetch('/api/extract-cash-out', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64, mimeType }),
-        })
-        const data = await res.json()
-        if (res.ok && data.value != null) {
-          setValue(String(data.value))
-          setExtractMsg({ ok: true, text: `Read $${data.value.toFixed(2)} from screenshot — adjust if needed.` })
-        } else {
-          // Surface the actual server error so we can debug failed reads.
-          const detail = data.error || data.reason || 'no value found'
-          setExtractMsg({ ok: false, text: `Auto-read failed (${detail}) — enter the value manually.` })
-        }
-      } catch (err) {
-        setExtractMsg({ ok: false, text: `Auto-read failed: ${err.message} — enter the value manually.` })
-      } finally {
-        setExtracting(false)
-      }
+      await runExtract(imageBase64, mimeType)
     } catch (err) {
       setError('Could not read image: ' + err.message)
     }
     e.target.value = ''
   }
+
+  // Manual re-trigger from the existing image (already-stored data URL).
+  async function handleRereadFromImage() {
+    const parts = dataUrlParts(image)
+    if (!parts) {
+      setExtractMsg({ ok: false, text: 'Image format not recognised — try re-uploading.' })
+      return
+    }
+    setError(null)
+    await runExtract(parts.data, parts.mime)
+  }
+
+  // First time the modal opens with an image present but no value yet, run
+  // OCR automatically — covers the user re-opening to add a screenshot to
+  // a previously-saved-without-value cash-out.
+  useEffect(() => {
+    if (!open) return
+    if (!image) return
+    if (value) return
+    handleRereadFromImage()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   async function handleSave() {
     if (!numericValue || numericValue <= 0) {
@@ -171,12 +206,21 @@ export default function CashOutModal({ open, onClose, table, row, onSaved }) {
           {image ? (
             <div className="space-y-2">
               <img src={image} alt="cash out screenshot" className="rounded-lg border border-slate-700 max-h-40 object-contain w-full" />
-              <button
-                onClick={() => setImage(null)}
-                className="text-xs text-slate-400 hover:text-red-400"
-              >
-                Remove screenshot
-              </button>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={handleRereadFromImage}
+                  disabled={extracting}
+                  className="text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-50"
+                >
+                  {extracting ? '📖 Reading…' : '🔄 Re-read value from screenshot'}
+                </button>
+                <button
+                  onClick={() => { setImage(null); setExtractMsg(null) }}
+                  className="text-xs text-slate-400 hover:text-red-400"
+                >
+                  Remove screenshot
+                </button>
+              </div>
             </div>
           ) : (
             <label className="block bg-slate-900 border border-dashed border-slate-600 rounded-lg px-3 py-3 text-center text-xs text-slate-400 cursor-pointer hover:border-slate-500 transition-colors">

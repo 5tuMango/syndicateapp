@@ -16,17 +16,22 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing imageBase64 or mimeType' })
   }
 
-  const prompt = `You are reading a Sportsbet bet-slip screenshot that shows a cash-out settlement.
+  const prompt = `You are reading a Sportsbet bet-slip screenshot.
 
-Find the cash-out value — the dollar amount the bookmaker paid the punter when they cashed the bet out early. It is usually labelled "Cashed Out" with a green money-bag icon and a "+ $X.XX" amount, or appears next to "Cash Out" in the bet summary.
+Find the CASH-OUT VALUE — the dollar amount the bookmaker paid the punter when they cashed the bet out early. Possible visual cues:
+  - A line saying "Cashed Out" with a green money-bag icon and "+ $XXX.XX"
+  - A button or summary line labelled "Cash Out" with a dollar amount next to it
+  - Text like "Cashed Out + $474.20" or similar
 
-Return ONLY a valid JSON object:
-{ "value": <number, AUD dollars, e.g. 474.20>, "confidence": "high" | "medium" | "low" }
+This value is NOT the original stake or potential return — it is the early-payout amount.
 
-If you cannot find a clear cash-out value, return:
-{ "value": null, "confidence": "low", "reason": "<short reason>" }
+Respond with ONLY a JSON object, no prose, no markdown:
+{ "value": 474.20, "confidence": "high" }
 
-Do not include the dollar sign or any other text — just the number.`
+If you can't find a clear cash-out amount:
+{ "value": null, "confidence": "low", "reason": "short explanation" }
+
+The "value" must be a plain number in AUD dollars (no $ sign, no + sign, no quotes).`
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -67,11 +72,18 @@ Do not include the dollar sign or any other text — just the number.`
     if (!match) return res.status(500).json({ error: 'Could not parse AI response', raw: textBlock.text.substring(0, 200) })
 
     const parsed = JSON.parse(match[0])
-    const value = parsed.value != null ? parseFloat(parsed.value) : null
+    // Be lenient: model might return "$474.20", "+474.20", or "474.20".
+    let value = null
+    if (parsed.value != null) {
+      const cleaned = String(parsed.value).replace(/[^0-9.\-]/g, '')
+      const n = parseFloat(cleaned)
+      if (!isNaN(n) && n > 0) value = n
+    }
     return res.status(200).json({
-      value: !isNaN(value) && value > 0 ? value : null,
+      value,
       confidence: parsed.confidence || 'low',
       reason: parsed.reason || null,
+      raw: textBlock.text.substring(0, 500),
     })
   } catch (err) {
     return res.status(500).json({ error: err.message })
