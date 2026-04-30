@@ -21,6 +21,8 @@ export default function CashOutModal({ open, onClose, table, row, onSaved }) {
   const [image, setImage] = useState(row?.cash_out_image || null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [extracting, setExtracting] = useState(false)
+  const [extractMsg, setExtractMsg] = useState(null)
 
   if (!open) return null
 
@@ -31,11 +33,35 @@ export default function CashOutModal({ open, onClose, table, row, onSaved }) {
   async function handleImage(e) {
     const file = e.target.files?.[0]
     if (!file) return
+    setError(null)
+    setExtractMsg(null)
     try {
       // fileToResizedBase64 returns { imageBase64, mimeType } — wrap it back
       // into a data URL so we can both preview <img src=…> and store it.
       const { imageBase64, mimeType } = await fileToResizedBase64(file)
       setImage(`data:${mimeType};base64,${imageBase64}`)
+
+      // Try to OCR the cash-out value out of the screenshot. Cheap Haiku call.
+      // User can override if it gets it wrong, or we leave the field empty.
+      setExtracting(true)
+      try {
+        const res = await fetch('/api/extract-cash-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64, mimeType }),
+        })
+        const data = await res.json()
+        if (res.ok && data.value != null) {
+          setValue(String(data.value))
+          setExtractMsg({ ok: true, text: `Read $${data.value.toFixed(2)} from screenshot — adjust if needed.` })
+        } else {
+          setExtractMsg({ ok: false, text: data.reason || 'Could not read a cash-out value from the screenshot — enter it manually.' })
+        }
+      } catch (err) {
+        setExtractMsg({ ok: false, text: `Auto-read failed: ${err.message} — enter the value manually.` })
+      } finally {
+        setExtracting(false)
+      }
     } catch (err) {
       setError('Could not read image: ' + err.message)
     }
@@ -118,6 +144,14 @@ export default function CashOutModal({ open, onClose, table, row, onSaved }) {
               placeholder="474.20"
             />
           </div>
+          {extracting && (
+            <p className="text-xs text-slate-400">📖 Reading value from screenshot…</p>
+          )}
+          {extractMsg && !extracting && (
+            <p className={`text-xs ${extractMsg.ok ? 'text-emerald-400' : 'text-yellow-400'}`}>
+              {extractMsg.text}
+            </p>
+          )}
           {profit != null && !isNaN(profit) && (
             <p className="text-xs text-slate-500">
               Stake ${stake.toFixed(2)} · Profit{' '}
