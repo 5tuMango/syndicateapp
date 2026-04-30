@@ -469,9 +469,9 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
         </div>
       </div>
 
-      {/* Stats + actions row */}
-      <div className="flex items-center justify-between pt-2 border-t border-slate-700/60">
-        <div className="flex gap-4 text-sm flex-wrap">
+      {/* Stats + actions row — stats stacked left (compact), actions wrap right */}
+      <div className="flex items-start justify-between gap-3 pt-2 border-t border-slate-700/60">
+        <div className="flex flex-col text-xs gap-0.5 shrink-0 leading-snug">
           <div>
             <span className="text-slate-500">Odds </span>
             <span className="text-white font-medium">{parseFloat(bet.odds).toFixed(2)}</span>
@@ -486,7 +486,7 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap justify-end items-center gap-x-3 gap-y-1.5 flex-1 min-w-0">
           {isMulti && legs.length > 0 ? (
             <button
               onClick={() => setExpanded(!expanded)}
