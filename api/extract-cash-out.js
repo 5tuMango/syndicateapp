@@ -37,8 +37,9 @@ Do not include the dollar sign or any other text — just the number.`
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        // Haiku 4.5 — cheap vision; we only need to OCR a single dollar amount.
-        model: 'claude-haiku-4-5',
+        // Use the same Sonnet 4.6 the other extract-* endpoints use — single
+        // image, single number, very few tokens, so cost stays tiny.
+        model: 'claude-sonnet-4-6',
         max_tokens: 256,
         messages: [{
           role: 'user',
@@ -56,7 +57,7 @@ Do not include the dollar sign or any other text — just the number.`
     }
 
     const data = await response.json()
-    logUsage({ endpoint: 'extract-cash-out', userId, model: 'claude-haiku-4-5', usage: data.usage, imageCount: 1 })
+    logUsage({ endpoint: 'extract-cash-out', userId, model: 'claude-sonnet-4-6', usage: data.usage, imageCount: 1 })
 
     const textBlock = data.content.find((b) => b.type === 'text')
     if (!textBlock) return res.status(500).json({ error: 'No response from AI' })

@@ -55,7 +55,9 @@ export default function CashOutModal({ open, onClose, table, row, onSaved }) {
           setValue(String(data.value))
           setExtractMsg({ ok: true, text: `Read $${data.value.toFixed(2)} from screenshot — adjust if needed.` })
         } else {
-          setExtractMsg({ ok: false, text: data.reason || 'Could not read a cash-out value from the screenshot — enter it manually.' })
+          // Surface the actual server error so we can debug failed reads.
+          const detail = data.error || data.reason || 'no value found'
+          setExtractMsg({ ok: false, text: `Auto-read failed (${detail}) — enter the value manually.` })
         }
       } catch (err) {
         setExtractMsg({ ok: false, text: `Auto-read failed: ${err.message} — enter the value manually.` })
