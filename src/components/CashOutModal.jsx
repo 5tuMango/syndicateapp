@@ -162,6 +162,7 @@ export default function CashOutModal({ open, onClose, table, row, onSaved }) {
             Bookmaker paid this out early. The cash-out value replaces the
             stake × odds calculation for winnings and P&amp;L.
           </p>
+          <p className="text-slate-600 text-[10px] mt-1">build co-v3</p>
         </div>
 
         <div className="space-y-2">
@@ -180,6 +181,17 @@ export default function CashOutModal({ open, onClose, table, row, onSaved }) {
               className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-green-500"
               placeholder="474.20"
             />
+            {image && (
+              <button
+                type="button"
+                onClick={handleRereadFromImage}
+                disabled={extracting}
+                className="text-xs px-2 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50 whitespace-nowrap"
+                title="Read the cash-out value from the screenshot"
+              >
+                {extracting ? '📖…' : '🔄 Read'}
+              </button>
+            )}
           </div>
           {extracting && (
             <p className="text-xs text-slate-400">📖 Reading value from screenshot…</p>
