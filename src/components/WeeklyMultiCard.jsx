@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { formatCurrency, profitLossColor, eventTimeToDate, formatEventTime } from '../lib/utils'
+import { formatCurrency, profitLossColor, eventTimeToDate, formatEventTime, isCashedOut } from '../lib/utils'
 import { usePersonas } from '../hooks/usePersonas'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { fileToResizedBase64 } from '../utils/resizeImage'
+import CashOutModal from './CashOutModal'
 
 function useNow() {
   const [now, setNow] = useState(() => Date.now())
@@ -128,6 +129,8 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
   const [savingLeg, setSavingLeg] = useState({})
   const [inlinePicks, setInlinePicks] = useState({})
   const [savingPick, setSavingPick] = useState({})
+  const [showCashOut, setShowCashOut] = useState(false)
+  const cashedOut = isCashedOut(multi)
 
   const legs = [...(multi.weekly_multi_legs || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
@@ -152,10 +155,17 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
   }
 
   const odds = combinedOdds(legs)
-  const outcome = deriveOutcome(legs)
+  const baseOutcome = deriveOutcome(legs)
+  // Cashed-out multis settle at cash_out_value regardless of leg outcomes —
+  // legs continue to update for record/display, but settlement is locked.
+  const outcome = cashedOut ? 'won' : baseOutcome
   const stake = parseFloat(multi.stake || 0)
-  const winnings = outcome === 'won' && odds != null ? stake * odds : 0
-  const pl = outcome === 'won' ? winnings - stake : outcome === 'lost' ? -stake : 0
+  const winnings = cashedOut
+    ? parseFloat(multi.cash_out_value || 0)
+    : (outcome === 'won' && odds != null ? stake * odds : 0)
+  const pl = cashedOut
+    ? winnings - stake
+    : (outcome === 'won' ? winnings - stake : outcome === 'lost' ? -stake : 0)
   const handleCheck = async () => {
     setChecking(true)
     setMsg(null)
@@ -235,14 +245,23 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
           <p className="text-white font-medium leading-snug">{multi.week_label}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {outcome === 'won' && winnings > 0 && (
+          {(outcome === 'won' || cashedOut) && winnings > 0 && (
             <span className="text-green-400 font-bold text-lg leading-none">
               +${winnings.toFixed(2)}
             </span>
           )}
-          <span className={`text-xs px-2 py-0.5 rounded border ${outcomeBadgeClass(outcome)}`}>
-            {outcome}
-          </span>
+          {cashedOut ? (
+            <span
+              title={`Cashed out at $${parseFloat(multi.cash_out_value).toFixed(2)}`}
+              className="text-xs px-2 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold"
+            >
+              💰 cashed out
+            </span>
+          ) : (
+            <span className={`text-xs px-2 py-0.5 rounded border ${outcomeBadgeClass(outcome)}`}>
+              {outcome}
+            </span>
+          )}
         </div>
       </div>
 
@@ -300,6 +319,16 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
             <span className="text-xs text-slate-600 italic">Awaiting bet slip</span>
           )}
 
+          {isAdmin && (
+            <button
+              onClick={() => setShowCashOut(true)}
+              className={`text-xs transition-colors ${cashedOut ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-amber-400'}`}
+              title={cashedOut ? 'Edit cash-out' : 'Mark this multi as cashed out'}
+            >
+              💰 {cashedOut ? 'Cash-Out ✓' : 'Cash Out'}
+            </button>
+          )}
+
           <Link
             to="/weekly-multi"
             className="text-xs text-slate-400 hover:text-purple-400 transition-colors"
@@ -323,9 +352,38 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
         </div>
       )}
 
+      {/* Cash-out modal */}
+      <CashOutModal
+        open={showCashOut}
+        onClose={() => setShowCashOut(false)}
+        table="weekly_multis"
+        row={multi}
+        onSaved={() => onUpdate?.()}
+      />
+
       {/* Expanded legs */}
       {expanded && (
         <div className="space-y-1.5 pt-1">
+          {cashedOut && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-md px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
+                <span className="text-amber-300 font-semibold">💰 Cashed out</span>
+                <span className="text-slate-300">
+                  Settled at <span className="text-green-400 font-semibold">${parseFloat(multi.cash_out_value).toFixed(2)}</span>
+                  {odds != null && (
+                    <span className="text-slate-500 text-xs"> (vs potential ${(stake * odds).toFixed(2)})</span>
+                  )}
+                </span>
+              </div>
+              {multi.cash_out_image && (
+                <img
+                  src={multi.cash_out_image}
+                  alt="cash out screenshot"
+                  className="rounded border border-slate-700 max-h-64 object-contain"
+                />
+              )}
+            </div>
+          )}
           {legs.map((leg) => {
             const persona = (leg.persona_id && byPersonaId[leg.persona_id])
               || (leg.assigned_user_id && byUserId[leg.assigned_user_id])

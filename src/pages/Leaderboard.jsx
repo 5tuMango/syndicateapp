@@ -23,6 +23,11 @@ function calcWeeklyStats(multis) {
     const validLegs = legs.filter((l) => l.odds != null && parseFloat(l.odds) > 0)
     const combo = validLegs.reduce((acc, l) => acc * parseFloat(l.odds), 1)
     const stake = parseFloat(m.stake || 0)
+    // Cashed-out multis settle at cash_out_value regardless of leg outcomes.
+    if (m.cashed_out && m.cash_out_value != null && parseFloat(m.cash_out_value) > 0) {
+      const winnings = parseFloat(m.cash_out_value)
+      return { outcome: 'won', winnings, pl: winnings - stake, combo, stake }
+    }
     let outcome
     if (nonVoid.length === 0 || nonVoid.some((l) => l.outcome === 'pending')) outcome = 'pending'
     else if (nonVoid.some((l) => l.outcome === 'lost')) outcome = 'lost'
@@ -58,7 +63,7 @@ export default function Leaderboard() {
 
   async function fetchData() {
     const [betsRes, personasRes, profilesRes, teamsRes, weeklyRes, creditsRes] = await Promise.all([
-      supabase.from('bets').select('user_id, persona_id, stake, odds, outcome, is_bonus_bet, is_rollover, intend_to_rollover, bet_return_value, created_at, date'),
+      supabase.from('bets').select('user_id, persona_id, stake, odds, outcome, is_bonus_bet, is_rollover, intend_to_rollover, bet_return_value, created_at, date, cashed_out, cash_out_value'),
       // select('*') so we get team_id if the column exists, without error if it doesn't
       supabase.from('personas').select('*').order('nickname'),
       // keep profiles for team fallback (pre-migration) and kitty data if needed

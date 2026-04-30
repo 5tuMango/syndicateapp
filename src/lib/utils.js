@@ -51,8 +51,15 @@ export function formatEventTime(timeStr) {
   })
 }
 
+// Whether a bet was settled early via bookmaker cash-out.
+// When true, payout = cash_out_value regardless of how legs ended up.
+export const isCashedOut = (bet) =>
+  !!bet?.cashed_out && bet?.cash_out_value != null && parseFloat(bet.cash_out_value) > 0
+
 // Gross return when a bet wins (what lands in your account)
 export const calcWinnings = (bet) => {
+  // Cash-out wins beat regular outcome: bet was settled early at this value.
+  if (isCashedOut(bet)) return parseFloat(bet.cash_out_value)
   if (bet.outcome !== 'won') return 0
   // intend_to_rollover: winnings go straight back out as the rollover stake — don't count twice
   if (bet.intend_to_rollover) return 0
@@ -65,6 +72,12 @@ export const calcWinnings = (bet) => {
 export const calcProfitLoss = (bet) => {
   const stake = parseFloat(bet.stake)
   const odds = parseFloat(bet.odds)
+  // Cash-out: P&L is the cash-out value minus stake (full value for bonus bets,
+  // since the stake was never the punter's money).
+  if (isCashedOut(bet)) {
+    const value = parseFloat(bet.cash_out_value)
+    return bet.is_bonus_bet ? value : value - stake
+  }
   if (bet.outcome === 'won') return stake * (odds - 1)
   if (bet.outcome === 'lost') {
     // Bonus bets only: free stake, so losing = $0 impact

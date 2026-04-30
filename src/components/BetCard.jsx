@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { calcProfitLoss, calcWinnings, formatCurrency, outcomeBadge, profitLossColor, eventTimeToDate, formatEventTime, evaluateBetReturn } from '../lib/utils'
+import { calcProfitLoss, calcWinnings, formatCurrency, outcomeBadge, profitLossColor, eventTimeToDate, formatEventTime, evaluateBetReturn, isCashedOut } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import { usePersonas } from '../hooks/usePersonas'
 import { fileToResizedBase64 } from '../utils/resizeImage'
+import CashOutModal from './CashOutModal'
 
 // ── Single hook: current timestamp, ticks every second ───────────────────────
 function useNow() {
@@ -259,6 +260,8 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
   const [uploadingResult, setUploadingResult] = useState(false)
 
   const [savingOverride, setSavingOverride] = useState(false)
+  const [showCashOut, setShowCashOut] = useState(false)
+  const cashedOut = isCashedOut(bet)
 
   const isOwner = user?.id === bet.user_id
   const pl = calcProfitLoss(bet)
@@ -446,14 +449,23 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {bet.outcome === 'won' && (
+          {(bet.outcome === 'won' || cashedOut) && (
             <span className={`font-bold text-lg leading-none ${bet.is_bonus_bet ? 'text-amber-400' : 'text-green-400'}`}>
               +${calcWinnings(bet).toFixed(2)}
             </span>
           )}
-          <span className={`text-xs px-2 py-0.5 rounded border ${outcomeBadge(bet.outcome)}`}>
-            {bet.outcome}
-          </span>
+          {cashedOut ? (
+            <span
+              title={`Cashed out at $${parseFloat(bet.cash_out_value).toFixed(2)}`}
+              className="text-xs px-2 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold"
+            >
+              💰 cashed out
+            </span>
+          ) : (
+            <span className={`text-xs px-2 py-0.5 rounded border ${outcomeBadge(bet.outcome)}`}>
+              {bet.outcome}
+            </span>
+          )}
         </div>
       </div>
 
@@ -518,6 +530,13 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
           {(isOwner || profile?.is_admin) && (
             <>
               <button
+                onClick={() => setShowCashOut(true)}
+                className={`text-xs transition-colors ${cashedOut ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-amber-400'}`}
+                title={cashedOut ? 'Edit cash-out' : 'Mark this bet as cashed out'}
+              >
+                💰 {cashedOut ? 'Cash-Out ✓' : 'Cash Out'}
+              </button>
+              <button
                 onClick={() => navigate(`/edit-bet/${bet.id}`)}
                 className="text-xs text-slate-400 hover:text-blue-400 transition-colors"
               >
@@ -576,9 +595,36 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
         </div>
       )}
 
+      {/* Cash-out modal */}
+      <CashOutModal
+        open={showCashOut}
+        onClose={() => setShowCashOut(false)}
+        table="bets"
+        row={bet}
+        onSaved={() => onUpdate?.(bet.id)}
+      />
+
       {/* Expanded detail panel */}
       {expanded && (
         <div className="space-y-2 pt-1">
+          {cashedOut && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-md px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
+                <span className="text-amber-300 font-semibold">💰 Cashed out</span>
+                <span className="text-slate-300">
+                  Settled at <span className="text-green-400 font-semibold">${parseFloat(bet.cash_out_value).toFixed(2)}</span>
+                  <span className="text-slate-500 text-xs"> (vs potential ${(parseFloat(bet.stake) * parseFloat(bet.odds)).toFixed(2)})</span>
+                </span>
+              </div>
+              {bet.cash_out_image && (
+                <img
+                  src={bet.cash_out_image}
+                  alt="cash out screenshot"
+                  className="rounded border border-slate-700 max-h-64 object-contain"
+                />
+              )}
+            </div>
+          )}
           {isMulti && legs.length > 0 ? (
             /* Multi — group SGM sub-legs, show standalone legs normally */
             renderGroupedLegs(legs, profile?.is_admin, handleLegOutcome)

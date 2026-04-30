@@ -22,6 +22,11 @@ function calcWeeklyStats(multis) {
     const validLegs = legs.filter((l) => l.odds != null && parseFloat(l.odds) > 0)
     const combo = validLegs.reduce((acc, l) => acc * parseFloat(l.odds), 1)
     const stake = parseFloat(m.stake || 0)
+    // Cashed-out multis settle at cash_out_value regardless of leg outcomes.
+    if (m.cashed_out && m.cash_out_value != null && parseFloat(m.cash_out_value) > 0) {
+      const winnings = parseFloat(m.cash_out_value)
+      return { outcome: 'won', winnings, pl: winnings - stake, combo, stake }
+    }
     let outcome
     if (nonVoid.length === 0 || nonVoid.some((l) => l.outcome === 'pending')) outcome = 'pending'
     else if (nonVoid.some((l) => l.outcome === 'lost')) outcome = 'lost'

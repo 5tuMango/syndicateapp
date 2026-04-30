@@ -54,6 +54,8 @@ export default function EditBet() {
       rollover_source_id: data.rollover_source_id || '',
       intend_to_rollover: data.intend_to_rollover || false,
       is_bonus_bet: data.is_bonus_bet || false,
+      cashed_out: data.cashed_out || false,
+      cash_out_value: data.cash_out_value != null ? String(data.cash_out_value) : '',
     })
 
     // Fetch available rollover source bets for this persona
@@ -144,6 +146,14 @@ export default function EditBet() {
         }
       }
 
+      // Cash-out: when present, force the bet to 'won' regardless of leg-derived
+      // outcome — settlement is locked at the cash-out value.
+      const cashOutValueNum = form.cashed_out && form.cash_out_value
+        ? parseFloat(form.cash_out_value)
+        : null
+      const isCashedOutNow = form.cashed_out && cashOutValueNum != null && cashOutValueNum > 0
+      const outcomeToSave = isCashedOutNow ? 'won' : finalOutcome
+
       const { error: betErr } = await supabase
         .from('bets')
         .update({
@@ -152,12 +162,14 @@ export default function EditBet() {
           event: form.event.trim(),
           odds: oddsToSave,
           stake: parseFloat(form.stake),
-          outcome: finalOutcome,
+          outcome: outcomeToSave,
           notes: form.notes.trim() || null,
           event_time: form.event_time || legs.find(l => l.event_time)?.event_time || null,
           is_rollover: form.is_rollover || false,
           rollover_source_id: form.is_rollover && form.rollover_source_id ? form.rollover_source_id : null,
           intend_to_rollover: form.intend_to_rollover || false,
+          cashed_out: isCashedOutNow,
+          cash_out_value: isCashedOutNow ? cashOutValueNum : null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -305,6 +317,40 @@ export default function EditBet() {
               Outcome is set automatically from leg results — mark each leg below.
             </div>
           )}
+
+          {/* Cash-out — overrides settlement for early-paid bets */}
+          <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!form.cashed_out}
+                onChange={(e) => set('cashed_out', e.target.checked)}
+                className="accent-amber-500"
+              />
+              <span className="text-sm text-amber-300 font-medium">💰 Cashed out</span>
+              <span className="text-xs text-slate-500">— overrides leg-based settlement</span>
+            </label>
+            {form.cashed_out && (
+              <div>
+                <label className={lbl}>Cash-Out Value (AUD)</label>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.cash_out_value}
+                    onChange={(e) => set('cash_out_value', e.target.value)}
+                    placeholder="474.20"
+                    className={inp}
+                  />
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Bet will be treated as won at this value, regardless of how the legs end up.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div>
             <label className={lbl}>Notes (optional)</label>

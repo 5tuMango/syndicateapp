@@ -64,7 +64,7 @@ export default function Teams() {
       supabase.from('personas').select('*').order('nickname'),
       supabase
         .from('bets')
-        .select('id, user_id, persona_id, stake, odds, outcome, is_bonus_bet, is_rollover, intend_to_rollover')
+        .select('id, user_id, persona_id, stake, odds, outcome, is_bonus_bet, is_rollover, intend_to_rollover, cashed_out, cash_out_value')
         .neq('outcome', 'pending'),
     ])
 

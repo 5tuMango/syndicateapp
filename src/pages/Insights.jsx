@@ -66,6 +66,10 @@ export default function Insights() {
   const totalWinnings = useMemo(() => {
     const indiv = bets.reduce((sum, b) => sum + calcWinnings(b), 0)
     const weekly = weeklyMultis.reduce((sum, m) => {
+      // Cashed-out multis settle at cash_out_value regardless of leg outcomes.
+      if (m.cashed_out && m.cash_out_value != null && parseFloat(m.cash_out_value) > 0) {
+        return sum + parseFloat(m.cash_out_value)
+      }
       const legs = m.weekly_multi_legs || []
       const nonVoid = legs.filter(l => l.outcome !== 'void')
       if (nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending') || nonVoid.some(l => l.outcome === 'lost')) return sum
@@ -86,9 +90,16 @@ export default function Insights() {
     for (const m of weeklyMultis) {
       const legs = m.weekly_multi_legs || []
       const nonVoid = legs.filter(l => l.outcome !== 'void')
-      if (nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending')) continue
       const stake = parseFloat(m.stake || 0)
       const date = (m.created_at || '').slice(0, 10)
+      // Cashed-out: locked-in won at cash_out_value, regardless of leg progress.
+      if (m.cashed_out && m.cash_out_value != null && parseFloat(m.cash_out_value) > 0) {
+        const winnings = parseFloat(m.cash_out_value)
+        weeklyWinByDate[date] = (weeklyWinByDate[date] || 0) + winnings
+        weeklyPLByDate[date] = (weeklyPLByDate[date] || 0) + (winnings - stake)
+        continue
+      }
+      if (nonVoid.length === 0 || nonVoid.some(l => l.outcome === 'pending')) continue
       if (nonVoid.some(l => l.outcome === 'lost')) {
         // Lost week: P&L = -stake
         weeklyPLByDate[date] = (weeklyPLByDate[date] || 0) - stake
