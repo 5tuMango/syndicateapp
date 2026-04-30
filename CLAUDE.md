@@ -123,7 +123,7 @@ Result checking for AFL and NRL goes through the in-house resolver instead of Cl
 - `api/collect-afl-stats.js` — AFL.com.au match centre → `sport_player_stats`
 - `api/collect-nrl-games.js` — NRL.com draw collector
 - `api/collect-nrl-stats.js` — NRL.com match centre collector
-- `api/test-api-sports.js` — POST mode runs legs through `resolveLeg` for backfill regression testing
+- `scripts/test-api-sports.js` — POST mode runs legs through `resolveLeg` for backfill regression testing. Lives outside `/api/` to keep us under Vercel Hobby's 12-function limit; run locally via `vercel dev` if needed
 
 DB tables: `sport_games`, `sport_player_stats`. See migration files under `supabase/`.
 
