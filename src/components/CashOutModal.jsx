@@ -32,8 +32,10 @@ export default function CashOutModal({ open, onClose, table, row, onSaved }) {
     const file = e.target.files?.[0]
     if (!file) return
     try {
-      const b64 = await fileToResizedBase64(file)
-      setImage(b64)
+      // fileToResizedBase64 returns { imageBase64, mimeType } — wrap it back
+      // into a data URL so we can both preview <img src=…> and store it.
+      const { imageBase64, mimeType } = await fileToResizedBase64(file)
+      setImage(`data:${mimeType};base64,${imageBase64}`)
     } catch (err) {
       setError('Could not read image: ' + err.message)
     }
