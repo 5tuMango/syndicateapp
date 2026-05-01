@@ -1,7 +1,7 @@
 // Go-Again credit logic.
-// Each winning bet of $250+ by an active-team member earns the punter
-// another $50 stake. Credits roll forward indefinitely until consumed
-// by stakes in a future active week.
+// Each winning bet of $250+ (or cashed-out bet with cash_out_value $250+)
+// by an active-team member earns the punter another $50 stake.
+// Credits roll forward indefinitely until consumed by stakes in a future active week.
 
 import { calcWinnings } from './utils'
 
@@ -78,9 +78,11 @@ export function detectQualifyingBets(bets, personas, weekToTeam) {
   }
 
   for (const bet of bets) {
-    if (bet.outcome !== 'won') continue
-    // Use calcWinnings — handles bonus bets correctly (stake × (odds-1)).
-    // Yoda's $50 bonus bet at 6.6 odds = $280 winnings → qualifies.
+    const isCashedOut = !!bet.cashed_out && bet.cash_out_value != null && parseFloat(bet.cash_out_value) > 0
+    if (bet.outcome !== 'won' && !isCashedOut) continue
+    // Use calcWinnings — handles bonus bets and cashed-out bets correctly.
+    // For cashed-out bets, calcWinnings returns cash_out_value directly.
+    // Trigger threshold: $250 winnings (or cash-out value) to earn a credit.
     const winnings = calcWinnings(bet)
     if (!winnings || winnings < GO_AGAIN_TRIGGER) continue
 
