@@ -285,72 +285,99 @@ export default function EditBet() {
             </div>
           </div>
 
-          {/* Outcome — manual for singles, auto-derived for multis */}
+          {/* Outcome — manual for singles, auto-derived for multis. 'cashed out'
+              is a 5th option that flips outcome → won + sets cash_out_value. */}
           {form.bet_type !== 'multi' ? (
-            <div>
+            <div className="space-y-2">
               <label className={lbl}>Outcome</label>
-              <div className="flex gap-2">
-                {['pending', 'won', 'lost', 'void'].map((o) => (
-                  <button
-                    key={o}
-                    type="button"
-                    onClick={() => set('outcome', o)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
-                      form.outcome === o
-                        ? o === 'won'
-                          ? 'bg-green-500/20 text-green-400 border-green-500/50'
-                          : o === 'lost'
-                          ? 'bg-red-500/20 text-red-400 border-red-500/50'
-                          : o === 'void'
-                          ? 'bg-slate-500/20 text-slate-300 border-slate-500/50'
-                          : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50'
-                        : 'bg-slate-700 text-slate-400 border-slate-600 hover:border-slate-400'
-                    }`}
-                  >
-                    {o}
-                  </button>
-                ))}
+              <div className="grid grid-cols-5 gap-2">
+                {['pending', 'won', 'lost', 'void', 'cashed_out'].map((o) => {
+                  const active = o === 'cashed_out' ? !!form.cashed_out : (form.outcome === o && !form.cashed_out)
+                  const cls =
+                    o === 'won' ? 'bg-green-500/20 text-green-400 border-green-500/50'
+                    : o === 'lost' ? 'bg-red-500/20 text-red-400 border-red-500/50'
+                    : o === 'void' ? 'bg-slate-500/20 text-slate-300 border-slate-500/50'
+                    : o === 'cashed_out' ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                    : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50'
+                  return (
+                    <button
+                      key={o}
+                      type="button"
+                      onClick={() => {
+                        if (o === 'cashed_out') {
+                          set('cashed_out', true)
+                          set('outcome', 'won')
+                        } else {
+                          set('cashed_out', false)
+                          set('cash_out_value', '')
+                          set('outcome', o)
+                        }
+                      }}
+                      className={`py-2 rounded-lg text-xs font-medium border transition-colors ${
+                        active ? cls : 'bg-slate-700 text-slate-400 border-slate-600 hover:border-slate-400'
+                      }`}
+                    >
+                      {o === 'cashed_out' ? '💰 cashed' : o}
+                    </button>
+                  )
+                })}
               </div>
+              {form.cashed_out && (
+                <div>
+                  <label className={lbl}>Cash-Out Value (AUD) — gross payout, includes stake</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.cash_out_value}
+                      onChange={(e) => set('cash_out_value', e.target.value)}
+                      placeholder="474.20"
+                      className={inp}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="text-xs text-slate-500 bg-slate-900/50 rounded-lg px-3 py-2">
-              Outcome is set automatically from leg results — mark each leg below.
+            <div className="space-y-2">
+              <div className="text-xs text-slate-500 bg-slate-900/50 rounded-lg px-3 py-2">
+                Outcome is set automatically from leg results — mark each leg below.
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+                <input
+                  type="checkbox"
+                  checked={!!form.cashed_out}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    set('cashed_out', checked)
+                    if (!checked) set('cash_out_value', '')
+                  }}
+                  className="accent-amber-500"
+                />
+                <span className="text-sm text-amber-300 font-medium">💰 Cashed out</span>
+                <span className="text-xs text-slate-500">— settles as won at the value below</span>
+              </label>
+              {form.cashed_out && (
+                <div>
+                  <label className={lbl}>Cash-Out Value (AUD) — gross payout, includes stake</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.cash_out_value}
+                      onChange={(e) => set('cash_out_value', e.target.value)}
+                      placeholder="474.20"
+                      className={inp}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
-
-          {/* Cash-out — overrides settlement for early-paid bets */}
-          <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!form.cashed_out}
-                onChange={(e) => set('cashed_out', e.target.checked)}
-                className="accent-amber-500"
-              />
-              <span className="text-sm text-amber-300 font-medium">💰 Cashed out</span>
-              <span className="text-xs text-slate-500">— overrides leg-based settlement</span>
-            </label>
-            {form.cashed_out && (
-              <div>
-                <label className={lbl}>Cash-Out Value (AUD)</label>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-400">$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.cash_out_value}
-                    onChange={(e) => set('cash_out_value', e.target.value)}
-                    placeholder="474.20"
-                    className={inp}
-                  />
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Bet will be treated as won at this value, regardless of how the legs end up.
-                </p>
-              </div>
-            )}
-          </div>
 
           <div>
             <label className={lbl}>Notes (optional)</label>

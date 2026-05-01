@@ -5,7 +5,6 @@ import { usePersonas } from '../hooks/usePersonas'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { fileToResizedBase64 } from '../utils/resizeImage'
-import CashOutModal from './CashOutModal'
 
 function useNow() {
   const [now, setNow] = useState(() => Date.now())
@@ -129,8 +128,39 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
   const [savingLeg, setSavingLeg] = useState({})
   const [inlinePicks, setInlinePicks] = useState({})
   const [savingPick, setSavingPick] = useState({})
-  const [showCashOut, setShowCashOut] = useState(false)
+  const [savingCashOut, setSavingCashOut] = useState(false)
   const cashedOut = isCashedOut(multi)
+
+  // Inline cash-out toggle for the weekly multi. Selecting "cashed out" prompts
+  // for the gross payout value; any other choice clears the flag.
+  async function handleCashOutChange(action) {
+    if (action === 'set') {
+      const existing = multi.cash_out_value != null ? String(multi.cash_out_value) : ''
+      const raw = window.prompt('Enter cash-out value (AUD, includes stake):', existing)
+      if (raw === null) return
+      const num = parseFloat(String(raw).replace(/[^0-9.\-]/g, ''))
+      if (!num || num <= 0) {
+        alert('Invalid cash-out value — must be greater than $0.')
+        return
+      }
+      setSavingCashOut(true)
+      await supabase
+        .from('weekly_multis')
+        .update({ cashed_out: true, cash_out_value: num, updated_at: new Date().toISOString() })
+        .eq('id', multi.id)
+      setSavingCashOut(false)
+      onUpdate?.()
+    } else if (action === 'clear') {
+      if (!confirm('Remove cash-out from this multi?')) return
+      setSavingCashOut(true)
+      await supabase
+        .from('weekly_multis')
+        .update({ cashed_out: false, cash_out_value: null, updated_at: new Date().toISOString() })
+        .eq('id', multi.id)
+      setSavingCashOut(false)
+      onUpdate?.()
+    }
+  }
 
   const legs = [...(multi.weekly_multi_legs || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
@@ -321,9 +351,10 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
 
           {isAdmin && (
             <button
-              onClick={() => setShowCashOut(true)}
-              className={`text-xs transition-colors ${cashedOut ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-amber-400'}`}
-              title={cashedOut ? 'Edit cash-out' : 'Mark this multi as cashed out'}
+              onClick={() => handleCashOutChange(cashedOut ? 'clear' : 'set')}
+              disabled={savingCashOut}
+              className={`text-xs transition-colors disabled:opacity-50 ${cashedOut ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-amber-400'}`}
+              title={cashedOut ? 'Remove cash-out' : 'Mark this multi as cashed out'}
             >
               💰 {cashedOut ? 'Cash-Out ✓' : 'Cash Out'}
             </button>
@@ -352,36 +383,18 @@ export default function WeeklyMultiCard({ multi, onUpdate, defaultExpanded = fal
         </div>
       )}
 
-      {/* Cash-out modal */}
-      <CashOutModal
-        open={showCashOut}
-        onClose={() => setShowCashOut(false)}
-        table="weekly_multis"
-        row={multi}
-        onSaved={() => onUpdate?.()}
-      />
-
       {/* Expanded legs */}
       {expanded && (
         <div className="space-y-1.5 pt-1">
           {cashedOut && (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-md px-4 py-3 space-y-2">
-              <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
-                <span className="text-amber-300 font-semibold">💰 Cashed out</span>
-                <span className="text-slate-300">
-                  Settled at <span className="text-green-400 font-semibold">${parseFloat(multi.cash_out_value).toFixed(2)}</span>
-                  {odds != null && (
-                    <span className="text-slate-500 text-xs"> (vs potential ${(stake * odds).toFixed(2)})</span>
-                  )}
-                </span>
-              </div>
-              {multi.cash_out_image && (
-                <img
-                  src={multi.cash_out_image}
-                  alt="cash out screenshot"
-                  className="rounded border border-slate-700 max-h-64 object-contain"
-                />
-              )}
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-md px-4 py-3 text-sm flex items-center justify-between flex-wrap gap-2">
+              <span className="text-amber-300 font-semibold">💰 Cashed out</span>
+              <span className="text-slate-300">
+                Settled at <span className="text-green-400 font-semibold">${parseFloat(multi.cash_out_value).toFixed(2)}</span>
+                {odds != null && (
+                  <span className="text-slate-500 text-xs"> (vs potential ${(stake * odds).toFixed(2)})</span>
+                )}
+              </span>
             </div>
           )}
           {legs.map((leg) => {

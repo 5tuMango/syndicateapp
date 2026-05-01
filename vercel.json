@@ -40,9 +40,6 @@
     },
     "api/extract-results.js": {
       "maxDuration": 60
-    },
-    "api/extract-cash-out.js": {
-      "maxDuration": 60
     }
   }
 }

@@ -5,7 +5,6 @@ import { calcProfitLoss, calcWinnings, formatCurrency, outcomeBadge, profitLossC
 import { supabase } from '../lib/supabase'
 import { usePersonas } from '../hooks/usePersonas'
 import { fileToResizedBase64 } from '../utils/resizeImage'
-import CashOutModal from './CashOutModal'
 
 // ── Single hook: current timestamp, ticks every second ───────────────────────
 function useNow() {
@@ -248,6 +247,10 @@ function deriveBetOutcome(legs) {
 }
 
 const OVERRIDE_OUTCOMES = ['won', 'lost', 'void', 'pending']
+// Dropdown options on the parent bet, including the synthetic 'cashed_out'
+// state. When picked, we prompt for a value, then store cashed_out=true +
+// outcome='won' (so won-bet filters still include it) + cash_out_value.
+const PARENT_OUTCOMES = ['pending', 'won', 'lost', 'void', 'cashed_out']
 
 export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) {
   const { user, profile } = useAuth()
@@ -260,7 +263,6 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
   const [uploadingResult, setUploadingResult] = useState(false)
 
   const [savingOverride, setSavingOverride] = useState(false)
-  const [showCashOut, setShowCashOut] = useState(false)
   const cashedOut = isCashedOut(bet)
 
   const isOwner = user?.id === bet.user_id
@@ -331,12 +333,34 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
   }
 
   const handleSaveOverride = async (newOutcome) => {
-    setSavingOverride(true)
-    const update = { outcome: newOutcome, updated_at: new Date().toISOString() }
+    let update = { updated_at: new Date().toISOString() }
+
+    if (newOutcome === 'cashed_out') {
+      // Prompt for the cash-out value. The cash-out value is the GROSS payout
+      // from the bookmaker (stake included), so winnings = value, P&L = value − stake.
+      const existing = bet.cash_out_value != null ? String(bet.cash_out_value) : ''
+      const raw = window.prompt('Enter cash-out value (AUD, includes stake):', existing)
+      if (raw === null) return // cancelled
+      const num = parseFloat(String(raw).replace(/[^0-9.\-]/g, ''))
+      if (!num || num <= 0) {
+        alert('Invalid cash-out value — must be greater than $0.')
+        return
+      }
+      update.cashed_out = true
+      update.cash_out_value = num
+      update.outcome = 'won' // settle as won so leaderboards/filters include it
+    } else {
+      update.outcome = newOutcome
+      update.cashed_out = false
+      update.cash_out_value = null
+    }
+
     if (bet.bet_return_text && bet.bet_return_value > 0) {
-      const earned = evaluateBetReturn(bet.bet_return_text, newOutcome, legs)
+      const earned = evaluateBetReturn(bet.bet_return_text, update.outcome, legs)
       if (earned !== null) update.bet_return_earned = earned
     }
+
+    setSavingOverride(true)
     await supabase.from('bets').update(update).eq('id', bet.id)
     setSavingOverride(false)
     onUpdate?.(bet.id)
@@ -530,13 +554,6 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
           {(isOwner || profile?.is_admin) && (
             <>
               <button
-                onClick={() => setShowCashOut(true)}
-                className={`text-xs transition-colors ${cashedOut ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-amber-400'}`}
-                title={cashedOut ? 'Edit cash-out' : 'Mark this bet as cashed out'}
-              >
-                💰 {cashedOut ? 'Cash-Out ✓' : 'Cash Out'}
-              </button>
-              <button
                 onClick={() => navigate(`/edit-bet/${bet.id}`)}
                 className="text-xs text-slate-400 hover:text-blue-400 transition-colors"
               >
@@ -553,18 +570,19 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
           )}
           {profile?.is_admin && (
             <select
-              value={bet.outcome || 'pending'}
+              value={cashedOut ? 'cashed_out' : (bet.outcome || 'pending')}
               onChange={(e) => handleSaveOverride(e.target.value)}
               disabled={savingOverride}
               className={`text-xs px-1.5 py-0.5 rounded border bg-slate-800 focus:outline-none focus:border-slate-500 disabled:opacity-50 ${
-                bet.outcome === 'won' ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                cashedOut ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : bet.outcome === 'won' ? 'bg-green-500/20 text-green-400 border-green-500/30'
                 : bet.outcome === 'lost' ? 'bg-red-500/20 text-red-400 border-red-500/30'
                 : bet.outcome === 'void' ? 'bg-slate-500/20 text-slate-400 border-slate-500/30'
                 : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
               }`}
             >
-              {OVERRIDE_OUTCOMES.map(o => (
-                <option key={o} value={o}>{o}</option>
+              {PARENT_OUTCOMES.map(o => (
+                <option key={o} value={o}>{o === 'cashed_out' ? 'cashed out' : o}</option>
               ))}
             </select>
           )}
@@ -595,34 +613,16 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
         </div>
       )}
 
-      {/* Cash-out modal */}
-      <CashOutModal
-        open={showCashOut}
-        onClose={() => setShowCashOut(false)}
-        table="bets"
-        row={bet}
-        onSaved={() => onUpdate?.(bet.id)}
-      />
-
       {/* Expanded detail panel */}
       {expanded && (
         <div className="space-y-2 pt-1">
           {cashedOut && (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-md px-4 py-3 space-y-2">
-              <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
-                <span className="text-amber-300 font-semibold">💰 Cashed out</span>
-                <span className="text-slate-300">
-                  Settled at <span className="text-green-400 font-semibold">${parseFloat(bet.cash_out_value).toFixed(2)}</span>
-                  <span className="text-slate-500 text-xs"> (vs potential ${(parseFloat(bet.stake) * parseFloat(bet.odds)).toFixed(2)})</span>
-                </span>
-              </div>
-              {bet.cash_out_image && (
-                <img
-                  src={bet.cash_out_image}
-                  alt="cash out screenshot"
-                  className="rounded border border-slate-700 max-h-64 object-contain"
-                />
-              )}
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-md px-4 py-3 text-sm flex items-center justify-between flex-wrap gap-2">
+              <span className="text-amber-300 font-semibold">💰 Cashed out</span>
+              <span className="text-slate-300">
+                Settled at <span className="text-green-400 font-semibold">${parseFloat(bet.cash_out_value).toFixed(2)}</span>
+                <span className="text-slate-500 text-xs"> (vs potential ${(parseFloat(bet.stake) * parseFloat(bet.odds)).toFixed(2)})</span>
+              </span>
             </div>
           )}
           {isMulti && legs.length > 0 ? (
