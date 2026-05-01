@@ -349,15 +349,18 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
       update.cashed_out = true
       update.cash_out_value = num
       update.outcome = 'won' // settle as won so leaderboards/filters include it
+      // Cashing out forfeits any bonus-bet return offer attached to the bet.
+      if (bet.bet_return_text && bet.bet_return_value > 0) {
+        update.bet_return_earned = false
+      }
     } else {
       update.outcome = newOutcome
       update.cashed_out = false
       update.cash_out_value = null
-    }
-
-    if (bet.bet_return_text && bet.bet_return_value > 0) {
-      const earned = evaluateBetReturn(bet.bet_return_text, update.outcome, legs)
-      if (earned !== null) update.bet_return_earned = earned
+      if (bet.bet_return_text && bet.bet_return_value > 0) {
+        const earned = evaluateBetReturn(bet.bet_return_text, newOutcome, legs)
+        if (earned !== null) update.bet_return_earned = earned
+      }
     }
 
     setSavingOverride(true)

@@ -154,25 +154,25 @@ export default function EditBet() {
       const isCashedOutNow = form.cashed_out && cashOutValueNum != null && cashOutValueNum > 0
       const outcomeToSave = isCashedOutNow ? 'won' : finalOutcome
 
-      const { error: betErr } = await supabase
-        .from('bets')
-        .update({
-          date: form.date,
-          sport: form.sport,
-          event: form.event.trim(),
-          odds: oddsToSave,
-          stake: parseFloat(form.stake),
-          outcome: outcomeToSave,
-          notes: form.notes.trim() || null,
-          event_time: form.event_time || legs.find(l => l.event_time)?.event_time || null,
-          is_rollover: form.is_rollover || false,
-          rollover_source_id: form.is_rollover && form.rollover_source_id ? form.rollover_source_id : null,
-          intend_to_rollover: form.intend_to_rollover || false,
-          cashed_out: isCashedOutNow,
-          cash_out_value: isCashedOutNow ? cashOutValueNum : null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', id)
+      const betUpdate = {
+        date: form.date,
+        sport: form.sport,
+        event: form.event.trim(),
+        odds: oddsToSave,
+        stake: parseFloat(form.stake),
+        outcome: outcomeToSave,
+        notes: form.notes.trim() || null,
+        event_time: form.event_time || legs.find(l => l.event_time)?.event_time || null,
+        is_rollover: form.is_rollover || false,
+        rollover_source_id: form.is_rollover && form.rollover_source_id ? form.rollover_source_id : null,
+        intend_to_rollover: form.intend_to_rollover || false,
+        cashed_out: isCashedOutNow,
+        cash_out_value: isCashedOutNow ? cashOutValueNum : null,
+        updated_at: new Date().toISOString(),
+      }
+      // Cashing out forfeits any bonus-bet return offered on the slip.
+      if (isCashedOutNow) betUpdate.bet_return_earned = false
+      const { error: betErr } = await supabase.from('bets').update(betUpdate).eq('id', id)
 
       if (betErr) throw betErr
 
