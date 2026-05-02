@@ -66,7 +66,7 @@ export default async function handler(req, res) {
       const filter = pendingBetIds.length > 0
         ? `or=(outcome.eq.pending,id.in.(${pendingBetIds.join(',')}))`
         : `outcome=eq.pending`
-      fetchUrl = `${SUPABASE_URL}/rest/v1/bets?${filter}&date=lte.${today}&select=${select}&order=date.asc&limit=6`
+      fetchUrl = `${SUPABASE_URL}/rest/v1/bets?${filter}&date=lte.${today}&select=${select}&order=date.asc&limit=20`
     }
 
     const betsRes = await sbFetch(fetchUrl, 'GET', null, SUPABASE_URL, SUPABASE_KEY)
@@ -87,15 +87,15 @@ export default async function handler(req, res) {
       const ms = Date.parse(s + ':00+10:00')
       return !isNaN(ms) && ms > nowMs
     }
-    // Cron only: stop retrying after 9h past kickoff — flag for manual review instead.
-    // First check window starts at kickoff + 3h.
+    // Cron only: don't check legs that haven't started yet (< 3h after kickoff).
+    // Upper bound is 24h to allow for late game-data updates and token expiry recovery.
     const isOutsideWindow = (eventTime) => {
       if (!isCron || !eventTime) return false
       const s = eventTime.substring(0, 16)
       const ms = Date.parse(s + ':00+10:00')
       if (isNaN(ms)) return false
       const elapsed = nowMs - ms
-      return elapsed < 3 * 60 * 60 * 1000 || elapsed > 9 * 60 * 60 * 1000
+      return elapsed < 3 * 60 * 60 * 1000 || elapsed > 24 * 60 * 60 * 1000
     }
 
     for (const bet of bets) {
@@ -120,21 +120,22 @@ export default async function handler(req, res) {
         if (bet.bet_type === 'multi' && pendingLegs.length > 0) {
           const today = new Date().toISOString().slice(0, 10)
           // Check each pending leg individually with a delay between calls
+          const legDetails = []
           for (const leg of pendingLegs) {
             // Skip legs whose event hasn't happened yet — compare full timestamps,
             // not just dates, so a 7:40pm game isn't checked at 9am the same day.
             if (isFuture(leg.event_time)) {
-              console.log(`  Leg [${leg.selection || leg.description}] → skipped (future event: ${leg.event_time})`)
+              legDetails.push({ selection: leg.selection, outcome: 'pending', reasoning: 'future event' })
               continue
             }
             if (isOutsideWindow(leg.event_time)) {
-              console.log(`  Leg [${leg.selection || leg.description}] → skipped by cron (outside 3-9h window)`)
+              legDetails.push({ selection: leg.selection, outcome: 'pending', reasoning: 'outside 3-9h window' })
               continue
             }
             const result = await checkSingleLeg(leg, bet.date, SUPABASE_URL, SUPABASE_KEY, isCron)
-            console.log(`  Leg [${leg.selection || leg.description}] → ${result.outcome} (${result.reasoning || ''})`)
+            legDetails.push({ selection: leg.selection, outcome: result.outcome, reasoning: result.reasoning })
             if (result.outcome === 'void') {
-              results.push({ betId: bet.id, outcome: 'pending', needs_review: true, reasoning: `Void leg: ${leg.selection || leg.description}` })
+              results.push({ betId: bet.id, outcome: 'pending', needs_review: true, reasoning: `Void leg: ${leg.selection || leg.description}`, legs: legDetails })
               continue
             }
             if (result.outcome && result.outcome !== 'pending') {
@@ -155,13 +156,20 @@ export default async function handler(req, res) {
             'GET', null, SUPABASE_URL, SUPABASE_KEY
           ).then((r) => r.json())
 
-          const anyLost = allLegs.some((l) => l.outcome === 'lost')
-          const anyPending = allLegs.some((l) => l.outcome === 'pending')
-          const finalOutcome = anyLost ? 'lost' : anyPending ? 'pending' : 'won'
+          // Void/missed legs are excluded from outcome derivation (stake returned for that leg).
+          // If every leg is void the whole bet is void; otherwise decide from remaining legs.
+          const activeLegs = allLegs.filter((l) => l.outcome !== 'void' && l.outcome !== 'missed')
+          const finalOutcome = activeLegs.length === 0 ? 'void'
+            : activeLegs.some((l) => l.outcome === 'lost') ? 'lost'
+            : activeLegs.some((l) => l.outcome === 'pending') ? 'pending'
+            : 'won'
 
-          // Cashed-out bets are settled — keep legs updating but don't flip the
-          // parent outcome (it stays at 'won' regardless of leg results).
-          if (finalOutcome !== 'pending' && !bet.cashed_out) {
+          // Don't overwrite manual settlement decisions:
+          //   - cashed_out bets are settled at cash_out_value regardless of legs
+          //   - bets manually set to 'void' should stay void (the resolver can't
+          //     determine voidness on its own; only a human can)
+          const manualLock = bet.cashed_out || bet.outcome === 'void'
+          if (finalOutcome !== 'pending' && !manualLock) {
             const betUpdate = { outcome: finalOutcome, updated_at: new Date().toISOString() }
             if (bet.bet_return_text && bet.bet_return_value > 0) {
               const earned = evaluateBetReturn(bet.bet_return_text, finalOutcome, allLegs)
@@ -169,7 +177,7 @@ export default async function handler(req, res) {
             }
             await sbFetch(`${SUPABASE_URL}/rest/v1/bets?id=eq.${bet.id}`, 'PATCH', betUpdate, SUPABASE_URL, SUPABASE_KEY)
           }
-          results.push({ betId: bet.id, outcome: bet.cashed_out ? 'won' : finalOutcome, cashed_out: !!bet.cashed_out })
+          results.push({ betId: bet.id, outcome: manualLock ? bet.outcome : finalOutcome, cashed_out: !!bet.cashed_out, legs: legDetails })
 
         } else {
           // Single bet or multi with no pending legs
@@ -177,7 +185,9 @@ export default async function handler(req, res) {
           if (bet.bet_type === 'multi' && bet.bet_legs?.some((l) => l.outcome === 'lost')) {
             check.outcome = 'lost'
           }
-          if (check.outcome !== 'pending' && !bet.cashed_out) {
+          // Same manual-lock guard as the multi path above.
+          const manualLock = bet.cashed_out || bet.outcome === 'void'
+          if (check.outcome !== 'pending' && !manualLock) {
             const betUpdate = { outcome: check.outcome, updated_at: new Date().toISOString() }
             if (bet.bet_return_text && bet.bet_return_value > 0) {
               // Try simple rule evaluation first; fall back to AI's determination for racing placements
