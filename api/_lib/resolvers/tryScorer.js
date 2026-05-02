@@ -16,8 +16,8 @@ function parseLeg(leg) {
   if (/first try scorer|to score first/i.test(combined)) type = 'first'
   else if (/anytime/i.test(combined)) type = 'anytime'
 
-  // N+ tries: "2+ tries", "2 or more tries"
-  const nMatch = combined.match(/(\d+)\s*\+\s*tries?/) || combined.match(/(\d+)\s*or\s*more\s*tries?/)
+  // N+ tries: "2+ tries", "2+ try", "2 or more tries"
+  const nMatch = combined.match(/(\d+)\s*\+\s*tr(?:y|ies)/) || combined.match(/(\d+)\s*or\s*more\s*tr(?:y|ies)/)
   const threshold = nMatch ? parseInt(nMatch[1]) : 1
   if (nMatch) type = 'threshold'
 
@@ -29,7 +29,8 @@ function parseLeg(leg) {
 
 function extractPlayerName(leg) {
   const sel = (leg.selection || '').trim()
-  const stripped = sel.replace(/\s+\d+\+?\s*tries?.*$/i, '').trim()
+  // Strip "1+ Try", "2+ Tries", "1 Try" etc — tries? matches "tries"/"trie" but not "try"
+  const stripped = sel.replace(/\s+\d+\+?\s*tr(?:y|ies).*$/i, '').trim()
   return stripped || null
 }
 

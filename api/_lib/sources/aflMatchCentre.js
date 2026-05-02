@@ -45,12 +45,35 @@ export async function fetchMatchesForRound(compSeasonId, roundNumber) {
   return data.matches || []
 }
 
+// Fetch a fresh MIS token from AFL's public token endpoint (discovered via DevTools).
+// Called automatically before each stats request — no env var or manual refresh needed.
+async function fetchMisToken() {
+  const res = await fetch(`${STATS_BASE}/WMCTok`, {
+    method: 'POST',
+    headers: {
+      'Origin': 'https://www.afl.com.au',
+      'Referer': 'https://www.afl.com.au/',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+    },
+  })
+  if (!res.ok) throw new Error(`WMCTok HTTP ${res.status}`)
+  const data = await res.json()
+  if (!data.token) throw new Error('WMCTok response missing token field')
+  return data.token
+}
+
 // Returns raw player stats response for a match.
-// Requires AFL_MIS_TOKEN env var — copy x-media-mis-token from DevTools on afl.com.au.
-// Token appears to be a site-wide API key (not user-session); update if you start getting 401s.
+// Auto-fetches a fresh MIS token via /WMCTok before each request.
+// Falls back to AFL_MIS_TOKEN env var if the token endpoint fails.
 export async function fetchPlayerStats(matchProviderId) {
-  const token = process.env.AFL_MIS_TOKEN
-  if (!token) throw new Error('AFL_MIS_TOKEN env var not set')
+  let token
+  try {
+    token = await fetchMisToken()
+  } catch (err) {
+    token = process.env.AFL_MIS_TOKEN
+    if (!token) throw new Error(`Token auto-fetch failed and AFL_MIS_TOKEN not set: ${err.message}`)
+    console.log(`  WMCTok auto-fetch failed (${err.message}), falling back to AFL_MIS_TOKEN env var`)
+  }
 
   const url = `${STATS_BASE}/playerStats/match/${matchProviderId}`
   const res = await fetch(url, {

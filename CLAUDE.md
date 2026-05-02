@@ -120,7 +120,7 @@ Result checking for AFL and NRL goes through the in-house resolver instead of Cl
 - `api/_lib/resolveLeg.js` — orchestrator: classify → look up game/stats → resolve
 - `api/_lib/apiSports.js` — shared API-Sports client (kept for non-AU sports)
 - `api/collect-afl-games.js` — Squiggle collector → `sport_games`
-- `api/collect-afl-stats.js` — AFL.com.au match centre → `sport_player_stats`
+- `api/collect-afl-stats.js` — AFL.com.au match centre → `sport_player_stats` (MIS token auto-fetched via POST /WMCTok — no env var needed)
 - `api/collect-nrl-games.js` — NRL.com draw collector
 - `api/collect-nrl-stats.js` — NRL.com match centre collector
 - `scripts/test-api-sports.js` — POST mode runs legs through `resolveLeg` for backfill regression testing. Lives outside `/api/` to keep us under Vercel Hobby's 12-function limit; run locally via `vercel dev` if needed

@@ -447,8 +447,12 @@ export default function Dashboard() {
     const recentLoss = allItems.filter(i => i.outcome === 'lost' && (i.date || '') >= tenDaysAgoStr).sort(byDate)
     // Section 4: wins — held all year
     const wins = allItems.filter(i => i.outcome === 'won').sort(byDate)
-    // Archive: lost 10+ days ago
-    const archive = allItems.filter(i => i.outcome === 'lost' && (i.date || '') < tenDaysAgoStr).sort(byDate)
+    // Archive: lost 10+ days ago, plus all void bets (stake refunded — no need
+    // to keep them in the active feed, but they need a home so they don't vanish)
+    const archive = allItems.filter(i =>
+      (i.outcome === 'lost' && (i.date || '') < tenDaysAgoStr) ||
+      i.outcome === 'void'
+    ).sort(byDate)
 
     return { pinnedWeekly, alivePending, deadPending, recentLoss, wins, archive }
   }, [filteredBets, weeklyMultis])
@@ -720,7 +724,7 @@ export default function Dashboard() {
             {feedSections.pinnedWeekly && (
               <div className="space-y-3">
                 <h2 className="text-xs font-semibold text-purple-400 uppercase tracking-wide">📌 This Week's Multi</h2>
-                <WeeklyMultiCard multi={feedSections.pinnedWeekly} onUpdate={handleWeeklyUpdate} defaultExpanded={true} />
+                <WeeklyMultiCard multi={feedSections.pinnedWeekly} onUpdate={handleWeeklyUpdate} defaultExpanded={false} />
               </div>
             )}
 

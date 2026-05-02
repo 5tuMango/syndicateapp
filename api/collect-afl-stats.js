@@ -5,6 +5,8 @@
 // Cron: daily at 15:00 UTC (1am AEST) — after all games have finished
 // Fetches player stats for completed matches in the current and previous round,
 // links them to sport_games rows, and upserts into sport_player_stats.
+//
+// MIS token is auto-fetched via POST /WMCTok on each run — no AFL_MIS_TOKEN env var needed.
 
 import {
   fetchMatchesForRound,
@@ -18,8 +20,8 @@ const COMP_SEASON_ID = 85
 // Round 1 of 2026 season started ~14 Mar 2026 (UTC)
 const SEASON_START_MS = Date.parse('2026-03-14T00:00:00Z')
 
-// Only fetch stats for matches that ended at least this many ms ago
-const MIN_AGE_MS = 3 * 60 * 60 * 1000 // 3 hours
+// Stats are only collected once sport_games.status = 'final' (set by collect-afl-games).
+// This avoids hammering the stats API mid-game and ensures resolver has complete data.
 
 function estimateCurrentRound() {
   const weeksSinceStart = Math.floor((Date.now() - SEASON_START_MS) / (7 * 24 * 60 * 60 * 1000))
@@ -57,10 +59,7 @@ export default async function handler(req, res) {
     const roundsToCheck = []
     for (let r = Math.max(1, fromRound); r <= Math.min(toRound, 28); r++) roundsToCheck.push(r)
 
-    const nowMs = Date.now()
     const summary = []
-    let tokenFailures = 0
-    let completedMatchesAttempted = 0
 
     for (const roundNumber of roundsToCheck) {
       let matches
@@ -71,13 +70,7 @@ export default async function handler(req, res) {
         continue
       }
 
-      // Only process matches that started at least MIN_AGE_MS ago
-      const completed = matches.filter(m => {
-        const start = m.utcStartTime ? Date.parse(m.utcStartTime) : 0
-        return start > 0 && start + MIN_AGE_MS < nowMs
-      })
-
-      for (const match of completed) {
+      for (const match of matches) {
         const matchId = match.providerId
         const homeRaw = match.home?.team?.name || ''
         const awayRaw = match.away?.team?.name || ''
@@ -85,22 +78,25 @@ export default async function handler(req, res) {
         const away = normaliseTeamName(awayRaw)
         const gameDate = match.utcStartTime ? match.utcStartTime.substring(0, 10) : null
 
-        const gameId = await findGameId(home, away, gameDate, SUPABASE_URL, SUPABASE_KEY)
-        if (!gameId) {
-          console.log(`  No sport_games match for ${home} v ${away} on ${gameDate}`)
-          summary.push({ match: `${home} v ${away}`, round: roundNumber, status: 'no_game_found' })
+        const game = await findGame(home, away, gameDate, SUPABASE_URL, SUPABASE_KEY)
+        if (!game) {
+          // Game not in DB yet (collect-afl-games hasn't run) — skip silently
           continue
         }
+        // Only collect stats once the game is marked final by collect-afl-games
+        if (game.status !== 'final') {
+          console.log(`  Skipping ${home} v ${away} (status: ${game.status || 'unknown'})`)
+          summary.push({ match: `${home} v ${away}`, round: roundNumber, status: 'not_final' })
+          continue
+        }
+        const gameId = game.id
 
-        completedMatchesAttempted++
         let statsData
         try {
+          // fetchPlayerStats auto-fetches a fresh MIS token via /WMCTok — no env var needed
           statsData = await fetchPlayerStats(matchId)
         } catch (err) {
           console.log(`  Stats fetch failed for ${matchId}: ${err.message}`)
-          if (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')) {
-            tokenFailures++
-          }
           summary.push({ match: `${home} v ${away}`, round: roundNumber, status: 'stats_fetch_failed', error: err.message })
           continue
         }
@@ -117,18 +113,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // If every completed match failed with a 401, the token has expired
-    if (completedMatchesAttempted > 0 && tokenFailures === completedMatchesAttempted) {
-      console.error('AFL_MIS_TOKEN appears expired — all stats requests returned 401')
-      await writeAlert('afl_token_expired', 'AFL stats token (AFL_MIS_TOKEN) has expired. Grab a fresh token from DevTools on afl.com.au and update the Vercel environment variable.', SUPABASE_URL, SUPABASE_KEY)
-      return res.status(500).json({
-        error: 'AFL_MIS_TOKEN expired — refresh the token in Vercel environment variables',
-        compSeasonId: COMP_SEASON_ID,
-        roundsChecked: roundsToCheck,
-        summary,
-      })
-    }
-
     return res.status(200).json({ compSeasonId: COMP_SEASON_ID, roundsChecked: roundsToCheck, summary })
 
   } catch (err) {
@@ -139,9 +123,10 @@ export default async function handler(req, res) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function findGameId(home, away, gameDate, supabaseUrl, supabaseKey) {
+// Returns the matching sport_games row (including status) or null if not found.
+async function findGame(home, away, gameDate, supabaseUrl, supabaseKey) {
   if (!gameDate) return null
-  const url = `${supabaseUrl}/rest/v1/sport_games?sport=eq.AFL&game_date=eq.${gameDate}&select=id,home,away`
+  const url = `${supabaseUrl}/rest/v1/sport_games?sport=eq.AFL&game_date=eq.${gameDate}&select=id,home,away,status`
   const res = await fetch(url, {
     headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
   })
@@ -149,31 +134,13 @@ async function findGameId(home, away, gameDate, supabaseUrl, supabaseKey) {
   const games = await res.json()
   if (!Array.isArray(games)) return null
 
-  const match = games.find(g => {
+  return games.find(g => {
     const h = g.home.toLowerCase()
     const a = g.away.toLowerCase()
     const qh = home.toLowerCase()
     const qa = away.toLowerCase()
     return (h.includes(qh) || qh.includes(h)) && (a.includes(qa) || qa.includes(a))
-  })
-  return match?.id || null
-}
-
-async function writeAlert(type, message, supabaseUrl, supabaseKey) {
-  try {
-    await fetch(`${supabaseUrl}/rest/v1/system_alerts`, {
-      method: 'POST',
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify({ type, message }),
-    })
-  } catch (err) {
-    console.error('Failed to write system alert:', err.message)
-  }
+  }) || null
 }
 
 async function upsertPlayerStats(rows, supabaseUrl, supabaseKey) {

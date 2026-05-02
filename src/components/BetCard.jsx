@@ -237,12 +237,15 @@ function LegOutcomeSelect({ outcome, onChange }) {
   )
 }
 
-// Derive parent bet outcome from all leg outcomes
+// Derive parent bet outcome from all leg outcomes.
+// Void/missed legs are excluded — they're removed from the multi (stake returned for that leg).
+// If every leg is void, the whole bet is void. Otherwise decide from the remaining legs.
 function deriveBetOutcome(legs) {
-  const outcomes = legs.map(l => l.outcome || 'pending')
+  const active = legs.filter(l => l.outcome !== 'void' && l.outcome !== 'missed')
+  if (active.length === 0) return 'void'
+  const outcomes = active.map(l => l.outcome || 'pending')
   if (outcomes.some(o => o === 'lost')) return 'lost'
   if (outcomes.some(o => o === 'pending')) return 'pending'
-  if (outcomes.every(o => o === 'void')) return 'void'
   return 'won'
 }
 
@@ -475,22 +478,29 @@ export default function BetCard({ bet, onDelete, onUpdate, showMember = true }) 
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {(bet.outcome === 'won' || cashedOut) && (
-            <span className={`font-bold text-lg leading-none ${bet.is_bonus_bet ? 'text-amber-400' : 'text-green-400'}`}>
-              +${calcWinnings(bet).toFixed(2)}
-            </span>
-          )}
-          {cashedOut ? (
-            <span
-              title={`Cashed out at $${parseFloat(bet.cash_out_value).toFixed(2)}`}
-              className="text-xs px-2 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold"
-            >
-              💰 cashed out
-            </span>
-          ) : (
-            <span className={`text-xs px-2 py-0.5 rounded border ${outcomeBadge(bet.outcome)}`}>
-              {bet.outcome}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="flex items-center gap-2">
+            {(bet.outcome === 'won' || cashedOut) && (
+              <span className={`font-bold text-lg leading-none ${bet.is_bonus_bet ? 'text-amber-400' : 'text-green-400'}`}>
+                +${calcWinnings(bet).toFixed(2)}
+              </span>
+            )}
+            {cashedOut ? (
+              <span
+                title={`Cashed out at $${parseFloat(bet.cash_out_value).toFixed(2)}`}
+                className="text-xs px-2 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold"
+              >
+                💰 cashed out
+              </span>
+            ) : (
+              <span className={`text-xs px-2 py-0.5 rounded border ${outcomeBadge(bet.outcome)}`}>
+                {bet.outcome}
+              </span>
+            )}
+          </div>
+          {bet.outcome === 'pending' && (
+            <span className="text-yellow-400 font-semibold text-base leading-none">
+              ${(parseFloat(bet.stake) * parseFloat(bet.odds)).toFixed(2)}
             </span>
           )}
         </div>

@@ -1,4 +1,4 @@
-// Player stat resolver — X+ disposals / tackles / kicks / etc.
+// Player stat resolver — X+ disposals / tackles / kicks / etc. and Over/Under markets.
 // Looks up the player in sport_player_stats for the game and checks the threshold.
 //
 // resolve(game, leg, players) → { outcome, reasoning }
@@ -42,25 +42,34 @@ function parseLeg(leg) {
   }
   if (!statCol) return null
 
-  // Find the threshold — "25+ disposals", "20 or more kicks", "2+ goals"
-  const threshMatch = combined.match(/(\d+)\s*\+/) || combined.match(/(\d+)\s*or\s*more/)
-  if (!threshMatch) return null
-  const threshold = parseInt(threshMatch[1])
+  // Over/Under market: "Over (26.5)", "Under (20.5)"
+  const ouMatch = combined.match(/\b(over|under)\s*\(?\s*(\d+(?:\.\d+)?)\s*\)?/)
+  if (ouMatch) {
+    const direction = ouMatch[1] === 'over' ? 'over' : 'under'
+    const threshold = parseFloat(ouMatch[2])
+    const playerName = extractPlayerName(leg)
+    if (!playerName) return null
+    return { statCol, threshold, direction, playerName }
+  }
 
-  // Find the player name — usually the selection or the part before the stat
-  // e.g. "Clayton Oliver 25+ Disposals" or selection = "Clayton Oliver"
+  // X+ / "X or more" market — always over
+  const threshMatch = combined.match(/(\d+(?:\.\d+)?)\s*\+/) || combined.match(/(\d+(?:\.\d+)?)\s*or\s*more/)
+  if (!threshMatch) return null
+  const threshold = parseFloat(threshMatch[1])
+
   const playerName = extractPlayerName(leg)
   if (!playerName) return null
 
-  return { statCol, threshold, playerName }
+  return { statCol, threshold, direction: 'over', playerName }
 }
 
 function extractPlayerName(leg) {
-  // Selection often contains just the player name, or "Player Name X+ Stat"
   const sel = (leg.selection || '').trim()
-  // Strip trailing "X+ StatName" pattern to get player name
-  const stripped = sel.replace(/\s+\d+\+?\s+\w+.*$/i, '').trim()
-  return stripped || null
+  // Strip "Over (X)" or "Under (X)" suffix first
+  const stripped = sel.replace(/\s+(over|under)\s*\(?\s*[\d.]+\s*\)?.*$/i, '').trim()
+  if (stripped && stripped !== sel) return stripped
+  // Strip trailing "X+ StatName" pattern
+  return sel.replace(/\s+\d+\+?\s+\w+.*$/i, '').trim() || null
 }
 
 export function resolve(game, leg, players) {
@@ -87,10 +96,10 @@ export function resolve(game, leg, players) {
   const player = match.player
   // Check top-level column first (AFL), then raw jsonb field (NRL)
   const actual = player[parsed.statCol] ?? player.raw?.[parsed.statCol] ?? 0
-  const won = actual >= parsed.threshold
+  const won = parsed.direction === 'under' ? actual < parsed.threshold : actual >= parsed.threshold
 
   return {
     outcome: won ? 'won' : 'lost',
-    reasoning: `${player.player_name} had ${actual} ${parsed.statCol} (needed ${parsed.threshold}+)`,
+    reasoning: `${player.player_name} had ${actual} ${parsed.statCol} (${parsed.direction} ${parsed.threshold})`,
   }
 }

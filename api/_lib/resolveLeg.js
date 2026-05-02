@@ -22,13 +22,15 @@ const MATCH_RESOLVERS = { h2h: resolveH2H, handicap: resolveHandicap, total: res
 const PLAYER_RESOLVERS = { playerStat: resolvePlayerStat, goalScorer: resolveGoalScorer, tryScorer: resolveTryScorer }
 
 export async function resolveLeg(leg, betDate, supabaseUrl, supabaseKey) {
-  if (!SUPPORTED_SPORTS.includes(leg.sport)) return { resolved: false }
+  // If sport is specified and unsupported, skip immediately.
+  // If sport is empty (e.g. weekly multi legs have no sport column), try all supported sports.
+  if (leg.sport && !SUPPORTED_SPORTS.includes(leg.sport)) return { resolved: false }
 
   const marketType = classifyMarket(leg)
   if (!marketType) return { resolved: false }
 
   const game = await findGame(leg, betDate, supabaseUrl, supabaseKey)
-  if (!game) return { resolved: false, reasoning: `No matching ${leg.sport} game in sport_games` }
+  if (!game) return { resolved: false, reasoning: `No matching game in sport_games for ${leg.event || leg.selection}` }
 
   if (marketType in MATCH_RESOLVERS) {
     const result = MATCH_RESOLVERS[marketType](game, leg)
@@ -62,21 +64,31 @@ async function findGame(leg, betDate, supabaseUrl, supabaseKey) {
   const date = leg.event_time ? leg.event_time.split('T')[0] : betDate
   if (!date) return null
 
-  const url = `${supabaseUrl}/rest/v1/sport_games?sport=eq.${leg.sport}&game_date=eq.${date}&select=*`
-  const res = await fetch(url, {
-    headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
-  })
-  if (!res.ok) return null
+  // If sport is known use it directly; otherwise try all supported sports (e.g. weekly multi legs)
+  const sportsToTry = (leg.sport && SUPPORTED_SPORTS.includes(leg.sport))
+    ? [leg.sport]
+    : SUPPORTED_SPORTS
 
-  const games = await res.json()
-  if (!Array.isArray(games) || games.length === 0) return null
-  if (games.length === 1) return games[0]
-
-  // Multiple games on this date — match by team names from event string
   const teams = extractTeams(leg.event || '')
-  if (!teams) return null
 
-  return games.find(g => teamsMatch(g, teams[0], teams[1])) || null
+  for (const sport of sportsToTry) {
+    const url = `${supabaseUrl}/rest/v1/sport_games?sport=eq.${sport}&game_date=eq.${date}&select=*`
+    const res = await fetch(url, {
+      headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+    })
+    if (!res.ok) continue
+
+    const games = await res.json()
+    if (!Array.isArray(games) || games.length === 0) continue
+    if (games.length === 1) return games[0]
+
+    // Multiple games on this date — match by team names from event string
+    if (!teams) continue
+    const match = games.find(g => teamsMatch(g, teams[0], teams[1]))
+    if (match) return match
+  }
+
+  return null
 }
 
 function extractTeams(event) {

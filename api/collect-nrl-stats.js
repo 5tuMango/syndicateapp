@@ -13,9 +13,6 @@ const SEASON = 2026
 const SEASON_START_MS = Date.parse('2026-03-06T00:00:00Z')
 const MAX_ROUND = 27
 
-// Only fetch stats for matches that ended at least this many ms ago
-const MIN_AGE_MS = 3 * 60 * 60 * 1000 // 3 hours
-
 function estimateCurrentRound() {
   const weeksSinceStart = Math.floor((Date.now() - SEASON_START_MS) / (7 * 24 * 60 * 60 * 1000))
   return Math.max(1, Math.min(weeksSinceStart + 1, MAX_ROUND))
@@ -48,7 +45,6 @@ export default async function handler(req, res) {
     const currentRound = estimateCurrentRound()
     const roundsToCheck = [currentRound - 2, currentRound - 1, currentRound].filter(r => r >= 1)
 
-    const nowMs = Date.now()
     const summary = []
     let roundFetchFailures = 0
 
@@ -62,11 +58,8 @@ export default async function handler(req, res) {
         continue
       }
 
-      // Only process matches that started at least MIN_AGE_MS ago
-      const completed = fixtures.filter(f => {
-        const kickoff = f.clock?.kickOffTimeLong ? Date.parse(f.clock.kickOffTimeLong) : 0
-        return kickoff > 0 && kickoff + MIN_AGE_MS < nowMs && f.matchState === 'FullTime'
-      })
+      // Only process matches that have fully completed
+      const completed = fixtures.filter(f => f.matchState === 'FullTime')
 
       for (const fixture of completed) {
         const matchCentreUrl = fixture.matchCentreUrl
